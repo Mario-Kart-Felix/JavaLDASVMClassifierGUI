@@ -27,9 +27,10 @@ public class DocClassifyActionListener implements ActionListener {
 	private static final int MAX_WAIT_TIME = 0;
 
 	private TextFileAdapter textFileAdapter = new TextFileAdapter();
-	private DocClassifyProcessor docClassifyProcessor;
 	private OutputLogHandler outputLogHandler = new OutputLogHandler();
-
+	
+	private DocClassifyProcessor docClassifyProcessor;
+	
 	private MainGUI mainGUI;
 	private JButton btnStart;
 	private JButton btnStop;

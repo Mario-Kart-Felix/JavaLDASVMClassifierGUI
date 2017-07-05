@@ -9,6 +9,8 @@ import javax.swing.JFileChooser;
 
 import main.listener.action.DocClassifyActionListener;
 import main.listener.action.DocClassifyFolderSelectActionListener;
+import main.listener.action.ModelTrainActionListener;
+import main.listener.action.ModelTrainingFolderSelectActionListener;
 
 /**
  *
@@ -20,14 +22,25 @@ public class MainGUI extends javax.swing.JFrame {
 	 * Creates new form MainGUI
 	 */
 	public MainGUI() {
+
 		initComponents();
 
+		// document-topic classifier
 		JFileChooser fcFolderForDocClassifying = new JFileChooser();
 		this.btnSelectFolderForClassifying.addActionListener(new DocClassifyFolderSelectActionListener(this,
 				this.labelFolderPathForClassifying, fcFolderForDocClassifying));
 		this.btnStartClassifying.addActionListener(new DocClassifyActionListener(this, this.btnStartClassifying,
 				this.btnStopClassifying, this.btnSelectFolderForClassifying, fcFolderForDocClassifying,
 				this.txtOverallLogClassifying, this.tableClassifyingResults));
+
+		// model training
+		JFileChooser fcFolderForModelTraining = new JFileChooser();
+		this.btnSelectFolderCorpusForTraining.addActionListener(new ModelTrainingFolderSelectActionListener(this,
+				this.labelFolderCorpusPathForTraining, fcFolderForModelTraining));
+		this.btnStartModelTraining.addActionListener(
+				new ModelTrainActionListener(this, this.btnStartModelTraining, this.btnStopModelTraining, this.btnSelectFolderCorpusForTraining,
+						this.txtNumberOfTakenOutWord, fcFolderForModelTraining, this.textOverallLogTraining, this.tableExtractedTopic));
+		
 	}
 
 	/**
@@ -58,10 +71,10 @@ public class MainGUI extends javax.swing.JFrame {
         labelFolderCorpusPathForTraining = new javax.swing.JLabel();
         btnStopModelTraining = new javax.swing.JButton();
         btnStartModelTraining = new javax.swing.JButton();
-        jTextField1 = new javax.swing.JTextField();
+        txtNumberOfTakenOutWord = new javax.swing.JTextField();
         labelNumberOfTakenWordForEachTopic = new javax.swing.JLabel();
         jScrollPane2 = new javax.swing.JScrollPane();
-        jTable1 = new javax.swing.JTable();
+        tableExtractedTopic = new javax.swing.JTable();
         labelNumberOfTakenWordForEachTopic1 = new javax.swing.JLabel();
         right_SecondTabbedPanel = new javax.swing.JPanel();
         scrolltextOverallLogTrainingPanel = new javax.swing.JScrollPane();
@@ -182,13 +195,13 @@ public class MainGUI extends javax.swing.JFrame {
         btnStartModelTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
         btnStartModelTraining.setText("Start");
 
-        jTextField1.setFont(new java.awt.Font("Tahoma", 0, 18)); // NOI18N
-        jTextField1.setText("10");
+        txtNumberOfTakenOutWord.setFont(new java.awt.Font("Tahoma", 0, 18)); // NOI18N
+        txtNumberOfTakenOutWord.setText("10");
 
         labelNumberOfTakenWordForEachTopic.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
         labelNumberOfTakenWordForEachTopic.setText("Extracting topic list:");
 
-        jTable1.setModel(new javax.swing.table.DefaultTableModel(
+        tableExtractedTopic.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
 
             },
@@ -196,7 +209,7 @@ public class MainGUI extends javax.swing.JFrame {
                 "Topic's label", "Topic's name"
             }
         ));
-        jScrollPane2.setViewportView(jTable1);
+        jScrollPane2.setViewportView(tableExtractedTopic);
 
         labelNumberOfTakenWordForEachTopic1.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
         labelNumberOfTakenWordForEachTopic1.setText("Number of taken word for each topic (*):");
@@ -220,7 +233,7 @@ public class MainGUI extends javax.swing.JFrame {
                                 .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
                                     .addComponent(labelNumberOfTakenWordForEachTopic1)
                                     .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                    .addComponent(jTextField1, javax.swing.GroupLayout.PREFERRED_SIZE, 64, javax.swing.GroupLayout.PREFERRED_SIZE))
+                                    .addComponent(txtNumberOfTakenOutWord, javax.swing.GroupLayout.PREFERRED_SIZE, 64, javax.swing.GroupLayout.PREFERRED_SIZE))
                                 .addComponent(btnSelectFolderCorpusForTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 338, javax.swing.GroupLayout.PREFERRED_SIZE))
                             .addComponent(labelNumberOfTakenWordForEachTopic))
                         .addGap(0, 0, Short.MAX_VALUE)))
@@ -239,13 +252,12 @@ public class MainGUI extends javax.swing.JFrame {
                     .addComponent(btnStartModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE))
                 .addGap(5, 5, 5)
                 .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(jTextField1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(txtNumberOfTakenOutWord, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                     .addComponent(labelNumberOfTakenWordForEachTopic1))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(labelNumberOfTakenWordForEachTopic)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane2)
-                .addContainerGap())
+                .addComponent(jScrollPane2))
         );
 
         textOverallLogTraining.setEditable(false);
@@ -290,6 +302,8 @@ public class MainGUI extends javax.swing.JFrame {
         );
 
         mainTabbedContainer.addTab("LDA & SVM Model Training", secondTabbedContainer);
+
+        mainTabbedContainer.setSelectedIndex(1);
 
         javax.swing.GroupLayout mainPanelLayout = new javax.swing.GroupLayout(mainPanel);
         mainPanel.setLayout(mainPanelLayout);
@@ -367,8 +381,6 @@ public class MainGUI extends javax.swing.JFrame {
     private javax.swing.JPanel firstTabbedPanel;
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JScrollPane jScrollPane2;
-    private javax.swing.JTable jTable1;
-    private javax.swing.JTextField jTextField1;
     private javax.swing.JLabel labelFolderCorpusPathForTraining;
     private javax.swing.JLabel labelFolderPathForClassifying;
     private javax.swing.JLabel labelNumberOfTakenWordForEachTopic;
@@ -384,8 +396,10 @@ public class MainGUI extends javax.swing.JFrame {
     private javax.swing.JScrollPane scrolltextOverallLogTrainingPanel;
     private javax.swing.JPanel secondTabbedContainer;
     private javax.swing.JTable tableClassifyingResults;
+    private javax.swing.JTable tableExtractedTopic;
     private javax.swing.JTextArea textOverallLogTraining;
+    private javax.swing.JTextField txtNumberOfTakenOutWord;
     private javax.swing.JTextArea txtOverallLogClassifying;
-    // End of variables declaration                                      
-    
+    // End of variables declaration                               
+
 }

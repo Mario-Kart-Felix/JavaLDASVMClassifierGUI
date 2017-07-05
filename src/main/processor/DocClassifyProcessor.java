@@ -32,8 +32,8 @@ public class DocClassifyProcessor implements Runnable {
 	private static final String vocabularyListFilePath = System.getProperty("user.dir")
 			+ "/data/corpus/vocabularies.txt";
 
-	public DocClassifyProcessor(String inputFolderPath, String jobLogFolderPath, String jobOverAllLogFilePath,
-			JTable outputTable) {
+	public DocClassifyProcessor(String inputFolderPath, String jobLogFolderPath, 
+			String jobOverAllLogFilePath, JTable outputTable) {
 		this.inputFolderPath = inputFolderPath;
 		this.jobLogFolderPath = jobLogFolderPath;
 		this.jobOverAllLogFilePath = jobOverAllLogFilePath;
