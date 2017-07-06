@@ -28,13 +28,15 @@ public class DocClassifyActionListener implements ActionListener {
 
 	private TextFileAdapter textFileAdapter = new TextFileAdapter();
 	private OutputLogHandler outputLogHandler = new OutputLogHandler();
-	
+
 	private DocClassifyProcessor docClassifyProcessor;
-	
+
 	private MainGUI mainGUI;
 	private JButton btnStart;
 	private JButton btnStop;
 	private JButton btnSelectedFolder;
+	private JComboBox<String> cbSelectModelForClassifying;
+	private JComboBox<String> cbExpectedTopicLabelClassifying;
 	private JFileChooser fcSelectedFolder;
 	private JTextArea txtOverallLog;
 	private JTable tableOutput;
@@ -43,6 +45,7 @@ public class DocClassifyActionListener implements ActionListener {
 	private Timer overallLogTimer;
 
 	public DocClassifyActionListener(MainGUI mainGUI, JButton btnStart, JButton btnStop, JButton btnSelectedFolder,
+			JComboBox<String> cbSelectModelForClassifying, JComboBox<String> cbExpectedTopicLabelClassifying,
 			JFileChooser fcSelectedFolder, JTextArea txtOverallLog, JTable tableOutput) {
 
 		// frame
@@ -52,6 +55,10 @@ public class DocClassifyActionListener implements ActionListener {
 		this.btnStart = btnStart;
 		this.btnStop = btnStop;
 		this.btnSelectedFolder = btnSelectedFolder;
+
+		// combox
+		this.cbSelectModelForClassifying = cbSelectModelForClassifying;
+		this.cbExpectedTopicLabelClassifying = cbExpectedTopicLabelClassifying;
 
 		// fileChooser
 		this.fcSelectedFolder = fcSelectedFolder;
@@ -69,10 +76,12 @@ public class DocClassifyActionListener implements ActionListener {
 
 		// TODO Auto-generated method stub
 		this.clearDataForm();
-		
+
 		if (this.fcSelectedFolder.getSelectedFile() != null) {
 
+			String expectedTopicLabel = this.cbExpectedTopicLabelClassifying.getSelectedItem().toString();
 			String selectedFolderPath = this.fcSelectedFolder.getSelectedFile().getAbsolutePath();
+			String selectedModelFolderName = this.cbSelectModelForClassifying.getSelectedItem().toString();
 			String jobLogFolderPath = this.outputLogHandler.generateLogFolder();
 
 			if (jobLogFolderPath != null) {
@@ -81,12 +90,12 @@ public class DocClassifyActionListener implements ActionListener {
 				String jobOverAllLogFilePath = jobLogFolderPath + "/overall_logs.txt";
 				this.textFileAdapter.writeToDataStringFile(">>START<<", jobOverAllLogFilePath);
 
-				this.docClassifyProcessor = new DocClassifyProcessor(selectedFolderPath, jobLogFolderPath,
-						jobOverAllLogFilePath, this.tableOutput);
+				this.docClassifyProcessor = new DocClassifyProcessor(selectedFolderPath, selectedModelFolderName,
+						expectedTopicLabel, jobLogFolderPath, jobOverAllLogFilePath, this.tableOutput);
 				docClassifyProcessor.run();
 
 				this.disableAllFormElement();
-				
+
 				try {
 
 					// init timer
@@ -154,7 +163,7 @@ public class DocClassifyActionListener implements ActionListener {
 		for (int i = rowCount - 1; i >= 0; i--) {
 			defaultTableModel.removeRow(i);
 		}
-		
+
 		this.txtOverallLog.setText(null);
 
 	}

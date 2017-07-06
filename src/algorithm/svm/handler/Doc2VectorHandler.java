@@ -33,8 +33,6 @@ public class Doc2VectorHandler {
 
 			if (file.isFile()) {
 
-				this.textFileAdapter.writeAppendToFile("Processing file: [" + file.getName() + "]", outputLogFile);
-
 				try {
 
 					List<String> docTerms = this.wordTokenizer.proceedFile(file.getPath());
@@ -46,11 +44,12 @@ public class Doc2VectorHandler {
 
 						if (vector != null) {
 							if (vector.toString() != null) {
-								this.textFileAdapter.writeAppendToFile("doc2vector: [" + vector.toString() + "]",
+								this.textFileAdapter.writeAppendToFile(
+										"doc2Vector: [" + file.getName() + "] -> [" + vector.toString() + "]",
 										outputLogFile);
 								svmVectors.add(vector);
 							}
-							
+
 						}
 
 					} else {

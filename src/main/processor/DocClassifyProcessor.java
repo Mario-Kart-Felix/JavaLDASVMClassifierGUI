@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import javax.swing.JOptionPane;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
 
@@ -24,20 +25,33 @@ public class DocClassifyProcessor implements Runnable {
 	private String inputFolderPath;
 	private String jobLogFolderPath;
 	private String jobOverAllLogFilePath;
+	private String expectedTopicLabel;
 	private JTable outputTable;
 
 	// static
-	private static final String modelFilePath = System.getProperty("user.dir") + "/data/svm/model/model.txt";
-	private static final String topicLabelListFilePath = System.getProperty("user.dir") + "/data/corpus/topic_list.txt";
-	private static final String vocabularyListFilePath = System.getProperty("user.dir")
-			+ "/data/corpus/vocabularies.txt";
+	private static final String modelRootDirPath = System.getProperty("user.dir") + "/data/svm/model";
 
-	public DocClassifyProcessor(String inputFolderPath, String jobLogFolderPath, 
-			String jobOverAllLogFilePath, JTable outputTable) {
+	private String modelFilePath;
+	private String topicLabelListFilePath;
+	private String vocabularyListFilePath;
+
+	public DocClassifyProcessor(String inputFolderPath, String selectedModelFolderName, String expectedTopicLabel,
+			String jobLogFolderPath, String jobOverAllLogFilePath, JTable outputTable) {
+		
+		//params
 		this.inputFolderPath = inputFolderPath;
 		this.jobLogFolderPath = jobLogFolderPath;
 		this.jobOverAllLogFilePath = jobOverAllLogFilePath;
+		this.expectedTopicLabel = expectedTopicLabel;
 		this.outputTable = outputTable;
+
+		String modelFolderPath = this.modelRootDirPath + "/" + selectedModelFolderName;
+		if (new File(modelFolderPath).exists()) {
+			this.modelFilePath = modelFolderPath + "/model.txt";
+			this.topicLabelListFilePath = modelFolderPath + "/topic_list.txt";
+			this.vocabularyListFilePath = modelFolderPath + "/vocabularies.txt";
+		}
+
 	}
 
 	@Override
@@ -73,7 +87,8 @@ public class DocClassifyProcessor implements Runnable {
 						doc2VectorOutputFilePath, predictOutputFilePath);
 				svmPredictProcessor.run();
 				List<String> predictOutputs = textFileAdapter.parseSingleFileToListString(predictOutputFilePath);
-
+				
+				int matchedExpectedTopic = 0;
 				int docCount = 0;
 				predictOutputs.remove(0);
 
@@ -89,21 +104,32 @@ public class DocClassifyProcessor implements Runnable {
 
 					String documentName = inputFiles[docCount].getName();
 					String predictedTopic = topics.get(docLabelIndex - 1);
+					
+					if(predictedTopic.equalsIgnoreCase(this.expectedTopicLabel)) {
+						matchedExpectedTopic++;
+					}
+					
 					String accuracyValue = String.valueOf(Double.parseDouble(splitOutputs[docLabelIndex]) * 100);
 
 					Object[] row = { documentName, predictedTopic, accuracyValue };
 					DefaultTableModel tableModel = (DefaultTableModel) this.outputTable.getModel();
-
 					tableModel.addRow(row);
+
 					docCount++;
 
 				}
+				
+				double matchedAccuracy = ((double) matchedExpectedTopic / (double) docCount) * 100;
+				JOptionPane.showMessageDialog(null, "Expected topic accuracy: -> [" + matchedAccuracy + "] % !" ,
+						"Error", JOptionPane.INFORMATION_MESSAGE);
 
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-
+			
+			
+			
 			Long endTime = new Date().getTime();
 			this.textFileAdapter.writeAppendToFile("Finished in: -> [" + (endTime - startTime) + "] (ms)",
 					this.jobOverAllLogFilePath);

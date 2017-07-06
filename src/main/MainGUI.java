@@ -5,12 +5,19 @@
  */
 package main;
 
-import javax.swing.JFileChooser;
+import java.io.File;
+import java.util.List;
 
+import javax.swing.JFileChooser;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+
+import adpater.file.TextFileAdapter;
 import main.listener.action.DocClassifyActionListener;
 import main.listener.action.DocClassifyFolderSelectActionListener;
 import main.listener.action.ModelTrainActionListener;
 import main.listener.action.ModelTrainingFolderSelectActionListener;
+import main.listener.change.SelectTrainingModelFolderChangeListener;
 
 /**
  *
@@ -18,388 +25,520 @@ import main.listener.action.ModelTrainingFolderSelectActionListener;
  */
 public class MainGUI extends javax.swing.JFrame {
 
+	private static final String outputModelRootDirPath = System.getProperty("user.dir") + "/data/svm/model";
+	private TextFileAdapter textFileAdapter = new TextFileAdapter();
+
 	/**
 	 * Creates new form MainGUI
 	 */
 	public MainGUI() {
 
 		initComponents();
+		this.loadSelectTrainingModelOptionsFromDb();
+
+		this.setLocationRelativeTo(null);
+		this.mainTabbedContainer.addChangeListener(new ChangeListener() {
+			@Override
+			public void stateChanged(ChangeEvent e) {
+				// TODO Auto-generated method stub
+				switch (mainTabbedContainer.getSelectedIndex()) {
+				case 0:
+					reloadSelectTrainingModelOptionsFromDb();
+					break;
+				default:
+					break;
+				}
+			}
+		});
 
 		// document-topic classifier
 		JFileChooser fcFolderForDocClassifying = new JFileChooser();
 		this.btnSelectFolderForClassifying.addActionListener(new DocClassifyFolderSelectActionListener(this,
 				this.labelFolderPathForClassifying, fcFolderForDocClassifying));
 		this.btnStartClassifying.addActionListener(new DocClassifyActionListener(this, this.btnStartClassifying,
-				this.btnStopClassifying, this.btnSelectFolderForClassifying, fcFolderForDocClassifying,
-				this.txtOverallLogClassifying, this.tableClassifyingResults));
+				this.btnStopClassifying, this.btnSelectFolderForClassifying, this.cbSelectModelForClassifying,
+				this.cbExpectedTopicLabelClassifying,fcFolderForDocClassifying, this.txtOverallLogClassifying, this.tableClassifyingResults));
 
 		// model training
 		JFileChooser fcFolderForModelTraining = new JFileChooser();
 		this.btnSelectFolderCorpusForTraining.addActionListener(new ModelTrainingFolderSelectActionListener(this,
 				this.labelFolderCorpusPathForTraining, fcFolderForModelTraining));
-		this.btnStartModelTraining.addActionListener(
-				new ModelTrainActionListener(this, this.btnStartModelTraining, this.btnStopModelTraining, this.btnSelectFolderCorpusForTraining,
-						this.txtNumberOfTakenOutWord, fcFolderForModelTraining, this.textOverallLogTraining, this.tableExtractedTopic));
-		
+		this.btnStartModelTraining.addActionListener(new ModelTrainActionListener(this, this.btnStartModelTraining,
+				this.btnStopModelTraining, this.btnSelectFolderCorpusForTraining, this.txtNumberOfTakenOutWord,
+				fcFolderForModelTraining, this.textOverallLogTraining, this.tableExtractedTopic));
+
+	}
+
+	// reloadSelectTrainingModelOptionsFromDb
+	private void reloadSelectTrainingModelOptionsFromDb() {
+
+		Object currentSelectItem = this.cbSelectModelForClassifying.getSelectedItem();
+		if (currentSelectItem != null) {
+			this.cbSelectModelForClassifying.removeAllItems();
+			File[] dataFiles = new File(this.outputModelRootDirPath).listFiles();
+			for (File dataFile : dataFiles) {
+				if (dataFile.isDirectory()) {
+					this.cbSelectModelForClassifying.addItem(dataFile.getName());
+				}
+			}
+
+			this.cbSelectModelForClassifying.setSelectedItem(currentSelectItem);
+		}
+	}
+
+	// loadSelectTrainingModelOptionsFromDb
+	private void loadSelectTrainingModelOptionsFromDb() {
+		this.cbSelectModelForClassifying.removeAllItems();
+		File[] dataFiles = new File(this.outputModelRootDirPath).listFiles();
+		for (File dataFile : dataFiles) {
+			if (dataFile.isDirectory()) {
+				this.cbSelectModelForClassifying.addItem(dataFile.getName());
+			}
+		}
+
+		// init
+		this.loadTheAvailableTopicInModelFolder(this.cbSelectModelForClassifying.getSelectedItem().toString());
+
+		// add event
+		this.cbSelectModelForClassifying
+				.addItemListener(new SelectTrainingModelFolderChangeListener(this.cbExpectedTopicLabelClassifying));
+
+	}
+
+	// loadTheAvailableTopicInModelFolder
+	private void loadTheAvailableTopicInModelFolder(String selectedFolderName) {
+		this.cbExpectedTopicLabelClassifying.removeAllItems();
+		List<String> topics = this.textFileAdapter.parseSingleFileToListString(
+				this.outputModelRootDirPath + "/" + selectedFolderName + "/topic_list.txt");
+		if (topics != null && topics.size() > 0) {
+			for (String topic : topics) {
+				this.cbExpectedTopicLabelClassifying.addItem(topic);
+			}
+		}
 	}
 
 	/**
-     * This method is called from within the constructor to initialize the form.
-     * WARNING: Do NOT modify this code. The content of this method is always
-     * regenerated by the Form Editor.
-     */
-    @SuppressWarnings("unchecked")
-    // <editor-fold defaultstate="collapsed" desc="Generated Code">                          
-    private void initComponents() {
+	 * This method is called from within the constructor to initialize the form.
+	 * WARNING: Do NOT modify this code. The content of this method is always
+	 * regenerated by the Form Editor.
+	 */
+	@SuppressWarnings("unchecked")
+	// <editor-fold defaultstate="collapsed" desc="Generated Code">
+	private void initComponents() {
 
-        mainPanel = new javax.swing.JPanel();
-        mainTabbedContainer = new javax.swing.JTabbedPane();
-        firstTabbedPanel = new javax.swing.JPanel();
-        left_FirstTabbedPanel = new javax.swing.JPanel();
-        btnStartClassifying = new javax.swing.JButton();
-        btnStopClassifying = new javax.swing.JButton();
-        jScrollPane1 = new javax.swing.JScrollPane();
-        txtOverallLogClassifying = new javax.swing.JTextArea();
-        btnSelectFolderForClassifying = new javax.swing.JButton();
-        labelFolderPathForClassifying = new javax.swing.JLabel();
-        right_FirstTabbedPanel = new javax.swing.JPanel();
-        scrollTableClassifyingResults = new javax.swing.JScrollPane();
-        tableClassifyingResults = new javax.swing.JTable();
-        secondTabbedContainer = new javax.swing.JPanel();
-        left_SecondTabbedPanel = new javax.swing.JPanel();
-        btnSelectFolderCorpusForTraining = new javax.swing.JButton();
-        labelFolderCorpusPathForTraining = new javax.swing.JLabel();
-        btnStopModelTraining = new javax.swing.JButton();
-        btnStartModelTraining = new javax.swing.JButton();
-        txtNumberOfTakenOutWord = new javax.swing.JTextField();
-        labelNumberOfTakenWordForEachTopic = new javax.swing.JLabel();
-        jScrollPane2 = new javax.swing.JScrollPane();
-        tableExtractedTopic = new javax.swing.JTable();
-        labelNumberOfTakenWordForEachTopic1 = new javax.swing.JLabel();
-        right_SecondTabbedPanel = new javax.swing.JPanel();
-        scrolltextOverallLogTrainingPanel = new javax.swing.JScrollPane();
-        textOverallLogTraining = new javax.swing.JTextArea();
-        labelOverallLog = new javax.swing.JLabel();
+		mainPanel = new javax.swing.JPanel();
+		mainTabbedContainer = new javax.swing.JTabbedPane();
+		firstTabbedPanel = new javax.swing.JPanel();
+		left_FirstTabbedPanel = new javax.swing.JPanel();
+		btnStartClassifying = new javax.swing.JButton();
+		btnStopClassifying = new javax.swing.JButton();
+		jScrollPane1 = new javax.swing.JScrollPane();
+		txtOverallLogClassifying = new javax.swing.JTextArea();
+		btnSelectFolderForClassifying = new javax.swing.JButton();
+		labelFolderPathForClassifying = new javax.swing.JLabel();
+		right_FirstTabbedPanel = new javax.swing.JPanel();
+		scrollTableClassifyingResults = new javax.swing.JScrollPane();
+		tableClassifyingResults = new javax.swing.JTable();
+		labelForDocClassifyingTableResult = new javax.swing.JLabel();
+		cbSelectModelForClassifying = new javax.swing.JComboBox<>();
+		labelForCbModelSelect = new javax.swing.JLabel();
+		labelForCbExpectedTopicClassifying = new javax.swing.JLabel();
+		cbExpectedTopicLabelClassifying = new javax.swing.JComboBox<>();
+		secondTabbedContainer = new javax.swing.JPanel();
+		left_SecondTabbedPanel = new javax.swing.JPanel();
+		btnSelectFolderCorpusForTraining = new javax.swing.JButton();
+		labelFolderCorpusPathForTraining = new javax.swing.JLabel();
+		btnStopModelTraining = new javax.swing.JButton();
+		btnStartModelTraining = new javax.swing.JButton();
+		txtNumberOfTakenOutWord = new javax.swing.JTextField();
+		labelNumberOfTakenWordForEachTopic = new javax.swing.JLabel();
+		jScrollPane2 = new javax.swing.JScrollPane();
+		tableExtractedTopic = new javax.swing.JTable();
+		labelNumberOfTakenWordForEachTopic1 = new javax.swing.JLabel();
+		right_SecondTabbedPanel = new javax.swing.JPanel();
+		scrolltextOverallLogTrainingPanel = new javax.swing.JScrollPane();
+		textOverallLogTraining = new javax.swing.JTextArea();
+		labelOverallLog = new javax.swing.JLabel();
 
-        setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
-        setTitle("LDA-SVM Document topic labeling v.1.0");
+		setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
+		setTitle("LDA-SVM Document topic labeling v.1.0");
 
-        mainTabbedContainer.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		mainTabbedContainer.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
 
-        btnStartClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnStartClassifying.setText("Start");
+		btnStartClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnStartClassifying.setText("Start");
 
-        btnStopClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnStopClassifying.setText("Stop");
-        btnStopClassifying.setEnabled(false);
+		btnStopClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnStopClassifying.setText("Stop");
+		btnStopClassifying.setEnabled(false);
 
-        txtOverallLogClassifying.setEditable(false);
-        txtOverallLogClassifying.setColumns(20);
-        txtOverallLogClassifying.setRows(5);
-        jScrollPane1.setViewportView(txtOverallLogClassifying);
+		txtOverallLogClassifying.setEditable(false);
+		txtOverallLogClassifying.setColumns(20);
+		txtOverallLogClassifying.setFont(new java.awt.Font("Monospaced", 0, 16)); // NOI18N
+		txtOverallLogClassifying.setRows(5);
+		jScrollPane1.setViewportView(txtOverallLogClassifying);
 
-        btnSelectFolderForClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnSelectFolderForClassifying.setText("Select document's folder");
+		btnSelectFolderForClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnSelectFolderForClassifying.setText("Select document's folder");
 
-        labelFolderPathForClassifying.setFont(new java.awt.Font("Tahoma", 2, 11)); // NOI18N
-        labelFolderPathForClassifying.setText("Select document's folder for classifying (*)");
+		labelFolderPathForClassifying.setFont(new java.awt.Font("Tahoma", 2, 11)); // NOI18N
+		labelFolderPathForClassifying.setText("Select document's folder for classifying (*)");
 
-        javax.swing.GroupLayout left_FirstTabbedPanelLayout = new javax.swing.GroupLayout(left_FirstTabbedPanel);
-        left_FirstTabbedPanel.setLayout(left_FirstTabbedPanelLayout);
-        left_FirstTabbedPanelLayout.setHorizontalGroup(
-            left_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(left_FirstTabbedPanelLayout.createSequentialGroup()
-                .addContainerGap()
-                .addGroup(left_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jScrollPane1)
-                    .addGroup(left_FirstTabbedPanelLayout.createSequentialGroup()
-                        .addComponent(btnStopClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(btnStartClassifying, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                    .addComponent(btnSelectFolderForClassifying, javax.swing.GroupLayout.DEFAULT_SIZE, 296, Short.MAX_VALUE)
-                    .addComponent(labelFolderPathForClassifying, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                .addContainerGap())
-        );
-        left_FirstTabbedPanelLayout.setVerticalGroup(
-            left_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(left_FirstTabbedPanelLayout.createSequentialGroup()
-                .addGap(6, 6, 6)
-                .addComponent(btnSelectFolderForClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(labelFolderPathForClassifying)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addGroup(left_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(btnStopClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(btnStartClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane1))
-        );
+		javax.swing.GroupLayout left_FirstTabbedPanelLayout = new javax.swing.GroupLayout(left_FirstTabbedPanel);
+		left_FirstTabbedPanel.setLayout(left_FirstTabbedPanelLayout);
+		left_FirstTabbedPanelLayout.setHorizontalGroup(left_FirstTabbedPanelLayout
+				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addGroup(left_FirstTabbedPanelLayout.createSequentialGroup().addContainerGap()
+						.addGroup(left_FirstTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+								.addComponent(jScrollPane1)
+								.addGroup(left_FirstTabbedPanelLayout.createSequentialGroup()
+										.addComponent(btnStopClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 151,
+												javax.swing.GroupLayout.PREFERRED_SIZE)
+										.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+										.addComponent(btnStartClassifying, javax.swing.GroupLayout.DEFAULT_SIZE,
+												javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+								.addComponent(btnSelectFolderForClassifying, javax.swing.GroupLayout.DEFAULT_SIZE, 296,
+										Short.MAX_VALUE)
+								.addComponent(labelFolderPathForClassifying, javax.swing.GroupLayout.DEFAULT_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+						.addContainerGap()));
+		left_FirstTabbedPanelLayout.setVerticalGroup(
+				left_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addGroup(left_FirstTabbedPanelLayout.createSequentialGroup().addGap(6, 6, 6)
+								.addComponent(btnSelectFolderForClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 28,
+										javax.swing.GroupLayout.PREFERRED_SIZE)
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addComponent(labelFolderPathForClassifying)
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addGroup(left_FirstTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+								.addComponent(btnStopClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 35,
+										javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addComponent(btnStartClassifying, javax.swing.GroupLayout.PREFERRED_SIZE, 35,
+										javax.swing.GroupLayout.PREFERRED_SIZE))
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addComponent(jScrollPane1)));
 
-        tableClassifyingResults.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
-        tableClassifyingResults.setModel(new javax.swing.table.DefaultTableModel(
-            new Object [][] {
+		tableClassifyingResults.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
+		tableClassifyingResults.setModel(new javax.swing.table.DefaultTableModel(new Object[][] {
 
-            },
-            new String [] {
-                "Document's name", "Predicted topic", "Accuracy (%)"
-            }
-        ) {
-            boolean[] canEdit = new boolean [] {
-                false, false, false
-            };
+		}, new String[] { "Document's name", "Predicted topic", "Accuracy (%)" }) {
+			boolean[] canEdit = new boolean[] { false, false, false };
 
-            public boolean isCellEditable(int rowIndex, int columnIndex) {
-                return canEdit [columnIndex];
-            }
-        });
-        scrollTableClassifyingResults.setViewportView(tableClassifyingResults);
+			public boolean isCellEditable(int rowIndex, int columnIndex) {
+				return canEdit[columnIndex];
+			}
+		});
+		scrollTableClassifyingResults.setViewportView(tableClassifyingResults);
 
-        javax.swing.GroupLayout right_FirstTabbedPanelLayout = new javax.swing.GroupLayout(right_FirstTabbedPanel);
-        right_FirstTabbedPanel.setLayout(right_FirstTabbedPanelLayout);
-        right_FirstTabbedPanelLayout.setHorizontalGroup(
-            right_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(scrollTableClassifyingResults, javax.swing.GroupLayout.DEFAULT_SIZE, 690, Short.MAX_VALUE)
-        );
-        right_FirstTabbedPanelLayout.setVerticalGroup(
-            right_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(scrollTableClassifyingResults, javax.swing.GroupLayout.Alignment.TRAILING, javax.swing.GroupLayout.DEFAULT_SIZE, 645, Short.MAX_VALUE)
-        );
+		labelForDocClassifyingTableResult.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		labelForDocClassifyingTableResult.setText("Document's classifying results");
 
-        javax.swing.GroupLayout firstTabbedPanelLayout = new javax.swing.GroupLayout(firstTabbedPanel);
-        firstTabbedPanel.setLayout(firstTabbedPanelLayout);
-        firstTabbedPanelLayout.setHorizontalGroup(
-            firstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(firstTabbedPanelLayout.createSequentialGroup()
-                .addComponent(left_FirstTabbedPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(right_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-        );
-        firstTabbedPanelLayout.setVerticalGroup(
-            firstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(left_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(right_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-        );
+		labelForCbModelSelect.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		labelForCbModelSelect.setText("Select SVM's training model (*):");
 
-        mainTabbedContainer.addTab("LDA & SVM Classifier", firstTabbedPanel);
+		labelForCbExpectedTopicClassifying.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		labelForCbExpectedTopicClassifying.setText("Expected topic label (*):");
 
-        btnSelectFolderCorpusForTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnSelectFolderCorpusForTraining.setText("Select document's corpus");
+		javax.swing.GroupLayout right_FirstTabbedPanelLayout = new javax.swing.GroupLayout(right_FirstTabbedPanel);
+		right_FirstTabbedPanel.setLayout(right_FirstTabbedPanelLayout);
+		right_FirstTabbedPanelLayout.setHorizontalGroup(
+				right_FirstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addComponent(scrollTableClassifyingResults)
+						.addGroup(right_FirstTabbedPanelLayout.createSequentialGroup()
+								.addComponent(labelForDocClassifyingTableResult, javax.swing.GroupLayout.PREFERRED_SIZE,
+										200, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addGap(0, 0, Short.MAX_VALUE))
+				.addGroup(javax.swing.GroupLayout.Alignment.TRAILING,
+						right_FirstTabbedPanelLayout.createSequentialGroup()
+								.addGroup(right_FirstTabbedPanelLayout
+										.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+										.addGroup(right_FirstTabbedPanelLayout.createSequentialGroup()
+												.addComponent(labelForCbExpectedTopicClassifying,
+														javax.swing.GroupLayout.PREFERRED_SIZE, 204,
+														javax.swing.GroupLayout.PREFERRED_SIZE)
+												.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+												.addComponent(cbExpectedTopicLabelClassifying, 0,
+														javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+								.addGroup(javax.swing.GroupLayout.Alignment.LEADING,
+										right_FirstTabbedPanelLayout.createSequentialGroup()
+												.addComponent(labelForCbModelSelect,
+														javax.swing.GroupLayout.DEFAULT_SIZE, 204, Short.MAX_VALUE)
+												.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+												.addComponent(cbSelectModelForClassifying,
+														javax.swing.GroupLayout.PREFERRED_SIZE, 264,
+														javax.swing.GroupLayout.PREFERRED_SIZE)))
+						.addGap(212, 212, 212)));
+		right_FirstTabbedPanelLayout.setVerticalGroup(right_FirstTabbedPanelLayout
+				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addGroup(javax.swing.GroupLayout.Alignment.TRAILING, right_FirstTabbedPanelLayout
+						.createSequentialGroup().addContainerGap()
+						.addGroup(right_FirstTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+								.addComponent(labelForCbModelSelect).addComponent(cbSelectModelForClassifying,
+										javax.swing.GroupLayout.PREFERRED_SIZE, 31,
+										javax.swing.GroupLayout.PREFERRED_SIZE))
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addGroup(right_FirstTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+								.addComponent(cbExpectedTopicLabelClassifying, javax.swing.GroupLayout.PREFERRED_SIZE,
+										34, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addComponent(labelForCbExpectedTopicClassifying))
+						.addGap(17, 17, 17).addComponent(labelForDocClassifyingTableResult)
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addComponent(scrollTableClassifyingResults, javax.swing.GroupLayout.DEFAULT_SIZE, 530,
+								Short.MAX_VALUE)));
 
-        labelFolderCorpusPathForTraining.setFont(new java.awt.Font("Tahoma", 2, 11)); // NOI18N
-        labelFolderCorpusPathForTraining.setText("Select document's corpus for model training (*)");
+		javax.swing.GroupLayout firstTabbedPanelLayout = new javax.swing.GroupLayout(firstTabbedPanel);
+		firstTabbedPanel.setLayout(firstTabbedPanelLayout);
+		firstTabbedPanelLayout.setHorizontalGroup(
+				firstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addGroup(firstTabbedPanelLayout.createSequentialGroup()
+								.addComponent(left_FirstTabbedPanel, javax.swing.GroupLayout.PREFERRED_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+								.addComponent(right_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)));
+		firstTabbedPanelLayout
+				.setVerticalGroup(firstTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addComponent(left_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+								javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+				.addComponent(right_FirstTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+						javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE));
 
-        btnStopModelTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnStopModelTraining.setText("Stop");
-        btnStopModelTraining.setEnabled(false);
+		mainTabbedContainer.addTab("LDA & SVM Classifier", firstTabbedPanel);
 
-        btnStartModelTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnStartModelTraining.setText("Start");
+		btnSelectFolderCorpusForTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnSelectFolderCorpusForTraining.setText("Select document's corpus");
 
-        txtNumberOfTakenOutWord.setFont(new java.awt.Font("Tahoma", 0, 18)); // NOI18N
-        txtNumberOfTakenOutWord.setText("10");
+		labelFolderCorpusPathForTraining.setFont(new java.awt.Font("Tahoma", 2, 11)); // NOI18N
+		labelFolderCorpusPathForTraining.setText("Select document's corpus for model training (*)");
 
-        labelNumberOfTakenWordForEachTopic.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
-        labelNumberOfTakenWordForEachTopic.setText("Extracting topic list:");
+		btnStopModelTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnStopModelTraining.setText("Stop");
+		btnStopModelTraining.setEnabled(false);
 
-        tableExtractedTopic.setModel(new javax.swing.table.DefaultTableModel(
-            new Object [][] {
+		btnStartModelTraining.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
+		btnStartModelTraining.setText("Start");
 
-            },
-            new String [] {
-                "Topic's label", "Topic's name"
-            }
-        ));
-        jScrollPane2.setViewportView(tableExtractedTopic);
+		txtNumberOfTakenOutWord.setFont(new java.awt.Font("Tahoma", 0, 18)); // NOI18N
+		txtNumberOfTakenOutWord.setText("10");
 
-        labelNumberOfTakenWordForEachTopic1.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
-        labelNumberOfTakenWordForEachTopic1.setText("Number of taken word for each topic (*):");
+		labelNumberOfTakenWordForEachTopic.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
+		labelNumberOfTakenWordForEachTopic.setText("Extracting topic list:");
 
-        javax.swing.GroupLayout left_SecondTabbedPanelLayout = new javax.swing.GroupLayout(left_SecondTabbedPanel);
-        left_SecondTabbedPanel.setLayout(left_SecondTabbedPanelLayout);
-        left_SecondTabbedPanelLayout.setHorizontalGroup(
-            left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
-                .addContainerGap()
-                .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
-                    .addComponent(labelFolderCorpusPathForTraining, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
-                        .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                            .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                                .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
-                                    .addComponent(btnStopModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 133, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                    .addComponent(btnStartModelTraining, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                                .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
-                                    .addComponent(labelNumberOfTakenWordForEachTopic1)
-                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                    .addComponent(txtNumberOfTakenOutWord, javax.swing.GroupLayout.PREFERRED_SIZE, 64, javax.swing.GroupLayout.PREFERRED_SIZE))
-                                .addComponent(btnSelectFolderCorpusForTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 338, javax.swing.GroupLayout.PREFERRED_SIZE))
-                            .addComponent(labelNumberOfTakenWordForEachTopic))
-                        .addGap(0, 0, Short.MAX_VALUE)))
-                .addContainerGap())
-        );
-        left_SecondTabbedPanelLayout.setVerticalGroup(
-            left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(btnSelectFolderCorpusForTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(labelFolderCorpusPathForTraining)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(btnStopModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(btnStartModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE))
-                .addGap(5, 5, 5)
-                .addGroup(left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(txtNumberOfTakenOutWord, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(labelNumberOfTakenWordForEachTopic1))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(labelNumberOfTakenWordForEachTopic)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane2))
-        );
+		tableExtractedTopic.setModel(new javax.swing.table.DefaultTableModel(new Object[][] {
 
-        textOverallLogTraining.setEditable(false);
-        textOverallLogTraining.setColumns(20);
-        textOverallLogTraining.setRows(5);
-        scrolltextOverallLogTrainingPanel.setViewportView(textOverallLogTraining);
+		}, new String[] { "Topic's name", "Folder's path" }));
+		jScrollPane2.setViewportView(tableExtractedTopic);
 
-        labelOverallLog.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
-        labelOverallLog.setText("Overall processes' logs");
+		labelNumberOfTakenWordForEachTopic1.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
+		labelNumberOfTakenWordForEachTopic1.setText("Number of taken word for each topic (*):");
 
-        javax.swing.GroupLayout right_SecondTabbedPanelLayout = new javax.swing.GroupLayout(right_SecondTabbedPanel);
-        right_SecondTabbedPanel.setLayout(right_SecondTabbedPanelLayout);
-        right_SecondTabbedPanelLayout.setHorizontalGroup(
-            right_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(scrolltextOverallLogTrainingPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 643, Short.MAX_VALUE)
-            .addGroup(right_SecondTabbedPanelLayout.createSequentialGroup()
-                .addComponent(labelOverallLog, javax.swing.GroupLayout.PREFERRED_SIZE, 165, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(0, 0, Short.MAX_VALUE))
-        );
-        right_SecondTabbedPanelLayout.setVerticalGroup(
-            right_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, right_SecondTabbedPanelLayout.createSequentialGroup()
-                .addGap(0, 6, Short.MAX_VALUE)
-                .addComponent(labelOverallLog)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(scrolltextOverallLogTrainingPanel, javax.swing.GroupLayout.PREFERRED_SIZE, 614, javax.swing.GroupLayout.PREFERRED_SIZE))
-        );
+		javax.swing.GroupLayout left_SecondTabbedPanelLayout = new javax.swing.GroupLayout(left_SecondTabbedPanel);
+		left_SecondTabbedPanel.setLayout(left_SecondTabbedPanelLayout);
+		left_SecondTabbedPanelLayout.setHorizontalGroup(left_SecondTabbedPanelLayout
+				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addGroup(left_SecondTabbedPanelLayout.createSequentialGroup().addContainerGap()
+						.addGroup(left_SecondTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+								.addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
+								.addComponent(labelFolderCorpusPathForTraining, javax.swing.GroupLayout.DEFAULT_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+								.addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
+										.addGroup(left_SecondTabbedPanelLayout
+												.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+												.addGroup(left_SecondTabbedPanelLayout.createParallelGroup(
+														javax.swing.GroupLayout.Alignment.LEADING, false)
+														.addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
+																.addComponent(btnStopModelTraining,
+																		javax.swing.GroupLayout.PREFERRED_SIZE, 133,
+																		javax.swing.GroupLayout.PREFERRED_SIZE)
+																.addPreferredGap(
+																		javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+																.addComponent(btnStartModelTraining,
+																		javax.swing.GroupLayout.DEFAULT_SIZE,
+																		javax.swing.GroupLayout.DEFAULT_SIZE,
+																		Short.MAX_VALUE))
+														.addGroup(left_SecondTabbedPanelLayout.createSequentialGroup()
+																.addComponent(labelNumberOfTakenWordForEachTopic1)
+																.addPreferredGap(
+																		javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+																.addComponent(txtNumberOfTakenOutWord,
+																		javax.swing.GroupLayout.PREFERRED_SIZE, 64,
+																		javax.swing.GroupLayout.PREFERRED_SIZE))
+														.addComponent(btnSelectFolderCorpusForTraining,
+																javax.swing.GroupLayout.PREFERRED_SIZE, 338,
+																javax.swing.GroupLayout.PREFERRED_SIZE))
+												.addComponent(labelNumberOfTakenWordForEachTopic))
+										.addGap(0, 0, Short.MAX_VALUE)))
+						.addContainerGap()));
+		left_SecondTabbedPanelLayout.setVerticalGroup(
+				left_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addGroup(left_SecondTabbedPanelLayout.createSequentialGroup().addContainerGap()
+								.addComponent(btnSelectFolderCorpusForTraining, javax.swing.GroupLayout.PREFERRED_SIZE,
+										28, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+								.addComponent(labelFolderCorpusPathForTraining)
+								.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+								.addGroup(left_SecondTabbedPanelLayout
+										.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+										.addComponent(btnStopModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 35,
+												javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addComponent(btnStartModelTraining, javax.swing.GroupLayout.PREFERRED_SIZE, 35,
+										javax.swing.GroupLayout.PREFERRED_SIZE))
+						.addGap(5, 5, 5)
+						.addGroup(left_SecondTabbedPanelLayout
+								.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+								.addComponent(txtNumberOfTakenOutWord, javax.swing.GroupLayout.PREFERRED_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addComponent(labelNumberOfTakenWordForEachTopic1))
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addComponent(labelNumberOfTakenWordForEachTopic)
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+						.addComponent(jScrollPane2, javax.swing.GroupLayout.DEFAULT_SIZE, 483, Short.MAX_VALUE)));
 
-        javax.swing.GroupLayout secondTabbedContainerLayout = new javax.swing.GroupLayout(secondTabbedContainer);
-        secondTabbedContainer.setLayout(secondTabbedContainerLayout);
-        secondTabbedContainerLayout.setHorizontalGroup(
-            secondTabbedContainerLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(secondTabbedContainerLayout.createSequentialGroup()
-                .addComponent(left_SecondTabbedPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                .addComponent(right_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-        );
-        secondTabbedContainerLayout.setVerticalGroup(
-            secondTabbedContainerLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(left_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(right_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-        );
+		textOverallLogTraining.setEditable(false);
+		textOverallLogTraining.setColumns(20);
+		textOverallLogTraining.setFont(new java.awt.Font("Monospaced", 0, 16)); // NOI18N
+		textOverallLogTraining.setRows(5);
+		scrolltextOverallLogTrainingPanel.setViewportView(textOverallLogTraining);
 
-        mainTabbedContainer.addTab("LDA & SVM Model Training", secondTabbedContainer);
+		labelOverallLog.setFont(new java.awt.Font("Tahoma", 0, 15)); // NOI18N
+		labelOverallLog.setText("Overall processes' logs");
 
-        mainTabbedContainer.setSelectedIndex(1);
+		javax.swing.GroupLayout right_SecondTabbedPanelLayout = new javax.swing.GroupLayout(right_SecondTabbedPanel);
+		right_SecondTabbedPanel.setLayout(right_SecondTabbedPanelLayout);
+		right_SecondTabbedPanelLayout.setHorizontalGroup(
+				right_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addComponent(scrolltextOverallLogTrainingPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 643,
+								Short.MAX_VALUE)
+						.addGroup(right_SecondTabbedPanelLayout.createSequentialGroup().addComponent(labelOverallLog,
+								javax.swing.GroupLayout.PREFERRED_SIZE, 165, javax.swing.GroupLayout.PREFERRED_SIZE)
+						.addGap(0, 0, Short.MAX_VALUE)));
+		right_SecondTabbedPanelLayout.setVerticalGroup(
+				right_SecondTabbedPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGroup(
+						javax.swing.GroupLayout.Alignment.TRAILING,
+						right_SecondTabbedPanelLayout.createSequentialGroup().addGap(13, 13, 13)
+								.addComponent(labelOverallLog)
+								.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+								.addComponent(scrolltextOverallLogTrainingPanel)));
 
-        javax.swing.GroupLayout mainPanelLayout = new javax.swing.GroupLayout(mainPanel);
-        mainPanel.setLayout(mainPanelLayout);
-        mainPanelLayout.setHorizontalGroup(
-            mainPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(mainTabbedContainer)
-        );
-        mainPanelLayout.setVerticalGroup(
-            mainPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(mainTabbedContainer)
-        );
+		javax.swing.GroupLayout secondTabbedContainerLayout = new javax.swing.GroupLayout(secondTabbedContainer);
+		secondTabbedContainer.setLayout(secondTabbedContainerLayout);
+		secondTabbedContainerLayout.setHorizontalGroup(
+				secondTabbedContainerLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addGroup(secondTabbedContainerLayout.createSequentialGroup()
+								.addComponent(left_SecondTabbedPanel, javax.swing.GroupLayout.PREFERRED_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+								.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+								.addComponent(right_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+										javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)));
+		secondTabbedContainerLayout.setVerticalGroup(
+				secondTabbedContainerLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+						.addComponent(left_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+								javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+				.addComponent(right_SecondTabbedPanel, javax.swing.GroupLayout.DEFAULT_SIZE,
+						javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE));
 
-        javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
-        getContentPane().setLayout(layout);
-        layout.setHorizontalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(mainPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                .addContainerGap())
-        );
-        layout.setVerticalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(mainPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                .addContainerGap())
-        );
+		mainTabbedContainer.addTab("LDA & SVM Model Training", secondTabbedContainer);
 
-        pack();
-    }// </editor-fold>                        
+		javax.swing.GroupLayout mainPanelLayout = new javax.swing.GroupLayout(mainPanel);
+		mainPanel.setLayout(mainPanelLayout);
+		mainPanelLayout.setHorizontalGroup(mainPanelLayout
+				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addComponent(mainTabbedContainer));
+		mainPanelLayout.setVerticalGroup(mainPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addComponent(mainTabbedContainer));
 
-    /**
-     * @param args the command line arguments
-     */
-    public static void main(String args[]) {
-        /* Set the Nimbus look and feel */
-        //<editor-fold defaultstate="collapsed" desc=" Look and feel setting code (optional) ">
-        /* If Nimbus (introduced in Java SE 6) is not available, stay with the default look and feel.
-         * For details see http://download.oracle.com/javase/tutorial/uiswing/lookandfeel/plaf.html 
-         */
-        try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if ("Nimbus".equals(info.getName())) {
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
-            }
-        } catch (ClassNotFoundException ex) {
-            java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (InstantiationException ex) {
-            java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (IllegalAccessException ex) {
-            java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (javax.swing.UnsupportedLookAndFeelException ex) {
-            java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        }
-        //</editor-fold>
+		javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
+		getContentPane().setLayout(layout);
+		layout.setHorizontalGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addGroup(layout.createSequentialGroup().addContainerGap().addComponent(mainPanel,
+						javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+				.addContainerGap()));
+		layout.setVerticalGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+				.addGroup(layout.createSequentialGroup().addContainerGap().addComponent(mainPanel,
+						javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+				.addContainerGap()));
 
-        /* Create and display the form */
-        java.awt.EventQueue.invokeLater(new Runnable() {
-            public void run() {
-                new MainGUI().setVisible(true);
-            }
-        });
-    }
+		pack();
+	}// </editor-fold>
 
-    // Variables declaration - do not modify                     
-    private javax.swing.JButton btnSelectFolderCorpusForTraining;
-    private javax.swing.JButton btnSelectFolderForClassifying;
-    private javax.swing.JButton btnStartClassifying;
-    private javax.swing.JButton btnStartModelTraining;
-    private javax.swing.JButton btnStopClassifying;
-    private javax.swing.JButton btnStopModelTraining;
-    private javax.swing.JPanel firstTabbedPanel;
-    private javax.swing.JScrollPane jScrollPane1;
-    private javax.swing.JScrollPane jScrollPane2;
-    private javax.swing.JLabel labelFolderCorpusPathForTraining;
-    private javax.swing.JLabel labelFolderPathForClassifying;
-    private javax.swing.JLabel labelNumberOfTakenWordForEachTopic;
-    private javax.swing.JLabel labelNumberOfTakenWordForEachTopic1;
-    private javax.swing.JLabel labelOverallLog;
-    private javax.swing.JPanel left_FirstTabbedPanel;
-    private javax.swing.JPanel left_SecondTabbedPanel;
-    private javax.swing.JPanel mainPanel;
-    private javax.swing.JTabbedPane mainTabbedContainer;
-    private javax.swing.JPanel right_FirstTabbedPanel;
-    private javax.swing.JPanel right_SecondTabbedPanel;
-    private javax.swing.JScrollPane scrollTableClassifyingResults;
-    private javax.swing.JScrollPane scrolltextOverallLogTrainingPanel;
-    private javax.swing.JPanel secondTabbedContainer;
-    private javax.swing.JTable tableClassifyingResults;
-    private javax.swing.JTable tableExtractedTopic;
-    private javax.swing.JTextArea textOverallLogTraining;
-    private javax.swing.JTextField txtNumberOfTakenOutWord;
-    private javax.swing.JTextArea txtOverallLogClassifying;
-    // End of variables declaration                               
+	/**
+	 * @param args
+	 *            the command line arguments
+	 */
+	public static void main(String args[]) {
+		/* Set the Nimbus look and feel */
+		// <editor-fold defaultstate="collapsed" desc=" Look and feel setting
+		// code (optional) ">
+		/*
+		 * If Nimbus (introduced in Java SE 6) is not available, stay with the
+		 * default look and feel. For details see
+		 * http://download.oracle.com/javase/tutorial/uiswing/lookandfeel/plaf.
+		 * html
+		 */
+		try {
+			for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
+				if ("Nimbus".equals(info.getName())) {
+					javax.swing.UIManager.setLookAndFeel(info.getClassName());
+					break;
+				}
+			}
+		} catch (ClassNotFoundException ex) {
+			java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+		} catch (InstantiationException ex) {
+			java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+		} catch (IllegalAccessException ex) {
+			java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+		} catch (javax.swing.UnsupportedLookAndFeelException ex) {
+			java.util.logging.Logger.getLogger(MainGUI.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+		}
+		// </editor-fold>
+
+		/* Create and display the form */
+		java.awt.EventQueue.invokeLater(new Runnable() {
+			public void run() {
+				new MainGUI().setVisible(true);
+			}
+		});
+	}
+
+	// Variables declaration - do not modify
+	private javax.swing.JButton btnSelectFolderCorpusForTraining;
+	private javax.swing.JButton btnSelectFolderForClassifying;
+	private javax.swing.JButton btnStartClassifying;
+	private javax.swing.JButton btnStartModelTraining;
+	private javax.swing.JButton btnStopClassifying;
+	private javax.swing.JButton btnStopModelTraining;
+	private javax.swing.JComboBox<String> cbExpectedTopicLabelClassifying;
+	private javax.swing.JComboBox<String> cbSelectModelForClassifying;
+	private javax.swing.JPanel firstTabbedPanel;
+	private javax.swing.JScrollPane jScrollPane1;
+	private javax.swing.JScrollPane jScrollPane2;
+	private javax.swing.JLabel labelFolderCorpusPathForTraining;
+	private javax.swing.JLabel labelFolderPathForClassifying;
+	private javax.swing.JLabel labelForCbExpectedTopicClassifying;
+	private javax.swing.JLabel labelForCbModelSelect;
+	private javax.swing.JLabel labelForDocClassifyingTableResult;
+	private javax.swing.JLabel labelNumberOfTakenWordForEachTopic;
+	private javax.swing.JLabel labelNumberOfTakenWordForEachTopic1;
+	private javax.swing.JLabel labelOverallLog;
+	private javax.swing.JPanel left_FirstTabbedPanel;
+	private javax.swing.JPanel left_SecondTabbedPanel;
+	private javax.swing.JPanel mainPanel;
+	private javax.swing.JTabbedPane mainTabbedContainer;
+	private javax.swing.JPanel right_FirstTabbedPanel;
+	private javax.swing.JPanel right_SecondTabbedPanel;
+	private javax.swing.JScrollPane scrollTableClassifyingResults;
+	private javax.swing.JScrollPane scrolltextOverallLogTrainingPanel;
+	private javax.swing.JPanel secondTabbedContainer;
+	private javax.swing.JTable tableClassifyingResults;
+	private javax.swing.JTable tableExtractedTopic;
+	private javax.swing.JTextArea textOverallLogTraining;
+	private javax.swing.JTextField txtNumberOfTakenOutWord;
+	private javax.swing.JTextArea txtOverallLogClassifying;
+	// End of variables declaration
 
 }
