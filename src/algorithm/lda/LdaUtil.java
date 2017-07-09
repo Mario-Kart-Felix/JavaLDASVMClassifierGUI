@@ -80,8 +80,6 @@ public class LdaUtil {
 			System.out.println(entry);
 		}
 	}
-	
-
 
 	public static void dispTheta(double[][] theta) {
 		System.out.println();
@@ -95,11 +93,57 @@ public class LdaUtil {
 		for (int m = 0; m < theta.length; m++) {
 			System.out.print(m + "\t");
 			for (int k = 0; k < theta[m].length; k++) {
-				// System.out.print(theta[m][k] + " ");
+				//System.out.print(theta[m][k] + " ");
 				System.out.print(shadeDouble(theta[m][k], 1) + " ");
 			}
 			System.out.println();
 		}
 		System.out.println();
 	}
+	
+	public static void dispThetaInNum(double[][] theta) {
+		System.out.println();
+		System.out.println();
+		System.out.println("Document--Topic Associations, Theta[d][k]");
+		System.out.print("d\\k\t");
+		
+		for (int m = 0; m < theta[0].length; m++) {
+			System.out.print("   " + m % 10 + "    ");
+		}
+		
+		System.out.println();
+		for (int m = 0; m < theta.length; m++) {
+			System.out.print(m + "\t");
+			for (int k = 0; k < theta[m].length; k++) {
+				System.out.print(theta[m][k] + " ");
+				//System.out.print(shadeDouble(theta[m][k], 1) + " ");
+			}
+			System.out.println();
+		}
+		System.out.println();
+	}
+
+	public static void displayProbTopic(double[][] theta) {
+		
+		System.out.println();
+		System.out.println();
+		// System.out.println("Document--Topic Associations, Theta[d][k]");
+
+		for (int k = 0; k < theta[0].length; k++) {
+	
+			double totalProb = 0;
+			
+			for (int m = 0; m < theta.length; m++) {
+				totalProb+=theta[m][k];
+			}
+			
+			System.out.println("Topic -> [" + k + "] -> [" + totalProb + "]");
+			
+			
+		}
+		
+		
+
+	}
+
 }
