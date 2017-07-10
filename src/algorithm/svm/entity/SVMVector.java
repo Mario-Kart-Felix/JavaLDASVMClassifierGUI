@@ -20,7 +20,7 @@ public class SVMVector {
 		int positivePoint = 0;
 		if (this.points.size() > 0) {
 
-			String vectorString = this.topicLabel + " ";
+			String vectorString = this.topicLabel + ".0" + " ";
 			for (Point point : this.points) {
 				if (point.getValue() == 1) {
 					vectorString += point.getPosition() + ":" + point.getValue() + " ";

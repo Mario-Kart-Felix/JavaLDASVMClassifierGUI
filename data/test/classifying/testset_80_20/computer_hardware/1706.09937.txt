@@ -1,0 +1,909 @@
+Robust Detection in Leak-Prone Population
+Protocols
+Dan Alistarh15?, Bartłomiej Dudek2, Adrian Kosowski3??, David
+Soloveichik4? ? ?, and Przemysław Uznański1
+1 ETH Zürich, Switzerland
+2 University of Wrocław, Poland
+3 Inria Paris and IRIF, Université Paris Diderot, France
+4 University of Texas, Austin, TX, USA
+5 IST Austria
+{dan.alistarh,przemyslaw.uznanski}@inf.ethz.ch,bartlomiej.dudek@cs.uni.wroc.pl,
+adrian.kosowski@inria.fr, david.soloveichik@utexas.edu.
+Abstract. In contrast to electronic computation, chemical computation
+is noisy and susceptible to a variety of sources of error, which has prevented
+the construction of robust complex systems. To be effective, chemical
+algorithms must be designed with an appropriate error model in mind.
+Here we consider the model of chemical reaction networks that preserve
+molecular count (population protocols), and ask whether computation can
+be made robust to a natural model of unintended “leak” reactions. Our
+definition of leak is motivated by both the particular spurious behavior
+seen when implementing chemical reaction networks with DNA strand
+displacement cascades, as well as the unavoidable side reactions in any
+implementation due to the basic laws of chemistry. We develop a new
+“Robust Detection” algorithm for the problem of fast (logarithmic time)
+single molecule detection, and prove that it is robust to this general model
+of leaks. Besides potential applications in single molecule detection, the
+error-correction ideas developed here might enable a new class of robust-
+by-design chemical algorithms. Our analysis is based on a non-standard
+hybrid argument, combining ideas from discrete analysis of population
+protocols with classic Markov chain techniques.
+1 Introduction
+A major challenge in designing autonomous molecular systems is to achieve a
+sufficient degree of error tolerance despite the error-prone nature of the chemical
+substrate. While considerable effort has focused on making the chemistry itself
+more robust, here we look at the possibility of developing chemical algorithms that
+? Supported by an SNF Ambizione Fellowship.
+?? Supported by Inria project GANG, ANR project DESCARTES, and NCN grant
+2015/17/B/ST6/01897.
+? ? ? Supported by NSF grants CCF-1618895 and CCF-1652824.
+ar
+X
+iv
+:1
+70
+6.
+09
+93
+7v
+1 
+ [
+cs
+.D
+S]
+  2
+9 
+Ju
+n 
+20
+17
+are inherently resilient to the types of error encountered. Before designing robust
+chemical algorithms, we must decide on a good error model that is relevant
+to the systems we care about. In this paper we focus on a very simple and
+general error model that is motivated both by basic laws of chemistry as well as
+by implementation artifacts in strand displacement constructions for chemical
+reaction networks. We begin by listing the types of errors we aim to capture.
+Leaks due to Law of Catalysis. A fundamental law of chemical kinetics is
+that for every catalyzed reaction, there is an uncatalyzed one that occurs at a
+(often much) slower rate. By a catalytic reaction, we mean a reaction that involves
+some species X but does not change its amount; this species is called a catalyst
+of that reaction. For example, the reaction X + Y →X + Z is catalytic, and
+species X is the catalyst since its count remains unchanged by the firing of this
+reaction. By the law of catalysis, reaction X + Y →X +Z must be accompanied
+by a (slower) leak reaction Y →Z. (A more general formulation of the law of
+catalysis is that if any sequence of reactions does not change the net count of
+X, then there is a pathway that has the same effect on all the other species,
+but can occur in the absence of X (possibly much slower). Thus for example, if
+X + Y →W and W →X + Z are two reactions, then there must also be a leak
+reaction Y →Z. Formally defining catalytic cycles and catalysts is non-trivial
+and is beyond the scope of this paper [1].)
+Leaks due to Law of Reversibility. Another fundamental law of chemical
+kinetics is that any reaction occurs also in the reverse direction at some (possibly
+much slower) rate. In other words, reaction X+Y →Z+W must be accompanied
+by Z +W →X + Y . (The degree of reaction reversibility is related to the free-
+energy use, such that irreversible reactions would require “infinite” free energy.)
+Leaks due to Spurious Activation in Strand-Displacement Cascades.
+Arbitrary chemical reaction networks can in principle be implemented with DNA
+strand displacement cascades [2,3]. Implementations based on strand displacement
+also suffer from the problem of leaks [4]. The implementation of a reaction like
+X + Y →Z +W consists of “fuel” complexes present in excess, that hold Z and
+W sequestered. A cascaded reaction of the fuel complex with X and Y results in
+the release of active Z and W . Leaks in this case consist of Z and W becoming
+spuriously activated, even in the absence of active X or Y .
+Importantly, for a catalytic reaction such as X + Y →X + Z, it is possible
+to design a strand displacement implementation that does not leak the catalyst
+X. This implementation would release the same exact molecule of X as was
+consumed to initiate the process, as in the catalytic system described in [5].
+Since fuels do not hold X sequestered, X cannot be produced in the leak process
+(although Z can).
+Modeling Reactions and Leaks. Note that in all cases above, we can guarantee
+that a species does not leak if it is exclusively a catalyst in every reaction it
+occurs in. This allows us some handle on the leak. In particular, we will ensure
+that the species we are trying to detect (called D below) will be a catalyst in
+every reaction that involves it. Otherwise, there might be a leak pathway to
+generating D itself—which is fundamentally irrecoverable.
+We express the implementations below in the population protocol formalism [6].
+That is, we consider a system with n molecules (aka nodes), which interact
+uniformly at random in a series of discrete steps. A population protocol is given
+as a set of reactions (aka transition rules) of the form
+A+B → C +D.
+Note that unlike general reaction networks, population protocols conserve total
+molecular count since molecules never combine or split. For this reason, compared
+to general chemical reaction networks, this model is easier to analyze.
+Given the set of reactions defining a protocol, we partition the species into
+catalytic states, which never change count as a consequence of any reaction, and
+non-catalytic, otherwise. Crucially, we model leaks as spurious reactions which
+can consume and create arbitrary non-catalytic species. More formally, a leak is
+a reaction of the type
+S → S′,
+where S and S′ denote arbitrary non-catalytic species. In the following, we do not
+make any assumptions on the way in which these leak transitions are chosen (i.e.,
+they could in theory be chosen adversarially), but we assume an upper bound on
+the rate at which leaks may occur in the system, controlled by a parameter β.
+Leak-Robust Detection. A computationally simple task which already illus-
+trates the difficulty of information processing in such an error-prone system is
+single molecule detection. Consider a solution of n molecules, in which a single
+molecule D may or may not be present. Intuitively, the goal is to generate large-
+scale (in the order of n) change in the system, depending on whether or not D is
+present or absent. Our time complexity measure is parallel time, defined as the
+number of pairwise interactions, divided by n. This measure of time naturally
+captures the parallelism of the system, where each molecule can participate in
+a constant number of interactions per unit time. Subject to leaks, our goal is
+to design the chemical interaction rules (formalized as a population protocol)
+to satisfy the following behavior. If D is present then it is detected fast, in
+logarithmic parallel time, and that the output is probabilistically “stable” in
+the sense that sampled at a random future time the system is in the “detected
+configuration” with high probability. By contrast, if D is absent, then the system
+sampled at a random future time should be in the “undetected configuration”
+with high probability. This basic task has several variations, for instance signal
+amplification or approximate counting of D.
+We first develop some intuition about this problem, by considering some
+strawman approaches.
+A first trivial attempt would be to have neutral molecules become “detectors”
+(state T ) as soon as they encounter D, that is,
+D +N→D + T.
+This approach suffers from two fatal flaws. First, it is slow, in that detection
+takes linear parallel time. Second, it has no way from recovering from leaks of
+the type N→T .
+A second attempt could try to implement an epidemic-style detection of D,
+that is:
+D +N→D + T
+T +N→T + T.
+This approach is fast, i.e. converges in logarithmic parallel time in case D is
+present. However, if D is not present, the algorithm converges to a false positive
+state: a leak of the type N→T brings the system to an all-T state, despite the
+absence of D. One could try to add a “neutralization” pathway by having T turn
+back to N after a constant number of interactions, but a careful analysis shows
+that this approach also fails to recover from leaks of the type N→T .
+Thus, it is not clear whether leak-resistant detection is possible in population
+protocols (or more generally chemical reaction networks). There has been con-
+siderable work in the algorithmic community on diffusion based models, e.g. [7].
+However, such results do not seem to apply to this setting, since leak models have
+not been considered previously, and none of the known techniques are robust to
+leaks. In particular, it appears that techniques for deterministic computation in
+population protocols do not carry over in the presence of leaks. More generally,
+this seems to create an unfortunate gap between the algorithmic community,
+which designs and analyzes population protocols in leak-free models, and more
+practically-minded research, which needs to address such implementation issues.
+Contribution. In this paper, we take a step towards bridging this gap. We
+provide a general algorithmic model of leaks, and apply it to the detection
+problem. Specifically, our immediate goal is to elucidate the question of whether
+efficient, leak-robust detection is possible.
+We prove that the answer is yes. We present a new algorithm, called Robust-
+Detect, which guarantees the following. Assume that the rate at which leaks
+occur is upper bounded by β/n 1/n, and that we return the output mapping
+(detect/non-detect) of a randomly chosen molecule after O(log n) parallel time.
+Then the probability of a false negative is at most 1/e+ o(1), and the probability
+of a false positive is at most β. (Note that as the total molecular count n increases,
+the chance that a particular interaction involves D decreases linearly with n. Thus
+the leak rate must also decrease linearly with n, or else the leaks will dominate.
+Alternatively, we can view some fixed leak rate as establishing an upper bound
+on the molecular count n, see below. )
+Algorithm Description. We now sketch the intuition behind the algorithm and
+its properties, leaving the formal treatment to Sections 4 and 5. Fix a parameter
+s ≥ 1, to be defined later. We define a set of “detecting” species X1, . . . , Xs,
+arranged in consecutive levels. Whenever a molecule meets D, it moves to the
+highest “alert” level, X1. Since leaks might produce this species as well, we decay
+it gracefully across s levels. More precisely, whenever a molecule at level Xi
+meets another molecule at level Xj , both molecules move to state Xmin(i,j)+1.
+A molecule which would move beyond level Xs following a reaction becomes
+neutral, i.e. moves to species N . Nodes in state Xi with i < s turn N into Xi+1,
+whereas molecules in state Xs also become neutral when interacting with N .
+Analysis. Intuitively, the algorithm’s dynamics for the case where a single
+molecule is in state D are as follows. The counts of molecules in state Xi tend
+to increase exponentially with the alert level i, up to levels ≈ log n, when the
+count becomes a constant fraction of n. However, once level log n is reached,
+these counts decrease doubly exponentially. Thus, it suffices to set s = log n to
+obtain that a fraction of at least (1− 1/e) molecules are in one of the alert states
+Xi in case D is present. It is not hard to prove that leaks cannot meaningfully
+affect the convergence behavior in this case.
+The other interesting case is when D is not present, but leaks may occur,
+leading to possible false positives. Intuitively, we can model this case as one where
+states X1 at the highest alert level simply are created at a lower rate β/n 1/n.
+A careful analysis of this setting yields that the probability of a false positive (D
+detected, but not present) in this case is at most β, corresponding to the leak
+rate parameter.
+Our analysis technique works by characterizing the stationary behavior of the
+Markov chain corresponding to the algorithm, and the convergence properties
+(mixing time) of this chain. For technical reasons, the analysis uses a non-standard
+hybrid argument, combining ideas from discrete analysis of population protocols
+with classic Markov chain techniques. The argument proves that the algorithm
+always stabilizes to the correct output in logarithmic parallel time.
+The analysis further highlights a few interesting properties of the algorithm.
+First, if the detectable species D is present in a higher count k > 1, then the
+algorithm effectively skips the first log k levels, and thus requires log(n/k) +
+O(log log n) states. Second, it is not necessary to know the exact value of log n,
+as the counts of species past this threshold decrease doubly exponentially.
+Alternative Formulations. An alternative view of this protocol is as solving
+the following related amplification problem: we are given a signal of strength
+(rate) φ, and the algorithm’s behavior should reflect whether this strength is
+below or above some threshold. The detection problem requires us to differentiate
+thresholds set at β/n and 1/n, for constant β  1, but our analysis applies to
+more general rates.
+Above, we have assumed that the leak rate decreases linearly with n, to
+separate from the case where a single instance of D is present. However, it is
+also reasonable to consider that the leak rate is fixed, say, upper bounded by a
+constant λ. In this case, the analysis works as long as the number of molecules n
+satisfies λ 1/n.
+Self-stabilization. Our algorithm is self-stabilizing in the sense that if the count
+of D changes due to some external reason, the output quickly adapts (within
+logarithmic parallel time). This is particularly interesting if the algorithm is used
+in the context of a “control module” for a cell detecting D and the amount of
+D changes over time. Note that strawman solutions considered above cannot be
+“untriggered” once D has been detected, and thus cannot adapt to a changing
+input.
+2 Related Work
+There is much work on attempting to decrease error in the underlying chemical
+substrate. A famous example includes kinetic proofreading [8]. In the context
+of DNA strand displacement systems in particular, leak reduction has been a
+prevailing topic [9]. Despite the importance of handling leaks, there are few
+examples of non-trivial algorithms, where leaks are handled through computation
+embedded in chemistry. One algorithm that appears to be able to handle errors is
+approximate majority [10], originally analyzed in a model where a fraction of the
+nodes are Byzantine, in that they can change their reported state in an adversarial
+way. Potentially due to its robustness properties, the approximate majority
+algorithm appears to be widely used in biological regulatory networks [11], and
+it was also one of the first chemical reaction network algorithms implemented
+with strand displacement cascades [4].
+Our algorithm can be viewed as a timed, self-stabilizing version of rumor
+spreading. For analysis of simple rumor-spreading, see [12]. Other work include
+fault-tolerant rumor spreading [13], push-pull models [7] and self-stabilizing
+broadcasting [14]. A rumor-spreading formulation of the molecule detection
+problem is also considered in recent work [15], which relies on a different source
+amplification mechanism based on oscillator dynamics. This protocol [15] is
+self-stabilizing in a weaker (probabilistic) sense compared to the algorithms from
+this paper and does not provide leak robustness guarantees.
+3 Preliminaries
+3.1 Population Protocols with Leaks
+Population Protocols. We start from a standard population protocol model,
+where n molecules (nodes) interact uniformly at random in a series of discrete
+steps. In our formulation, in each step, a coin is flipped to decide whether the
+current interaction is a regular reaction or a leak reaction. In the former case,
+two molecules are picked uniformly at random, and interact according to the
+rules of the protocol. In the latter case, a leak reaction occurs (see below).
+A population protocol is given as a set of reactions (transition rules) of the
+form
+A+B → C +D,
+(where some of A,B,C,D might be the same). We (arbitrarily) match the first
+reactant (A) with the first product (C), and the second reactant (B) with the
+second product (D), and think of A as changing state to C, and B as changing
+state to D. If the two molecules picked to interact do not have a corresponding
+interaction rule, then they don’t change state and we call this a null interaction.
+Population protocols are a special case of the stochastic chemical reaction networks
+kinetic model (e.g., [16](A.4)).
+Catalytic and Non-Catalytic Species. Given a set of reactions, we define the
+set of catalytic species as the set of states which never change as a consequence of
+any reaction. That is, for every reaction, the species is present in the same count
+both in the input and the output of the reaction. For example, in the reactions
+A+ C → B + C
+A+B → A+D
+we call C catalytic. Note that A acts as a catalyst in the second reaction, but its
+count is changed by the first reaction, thus it is not overall catalytic. All species
+whose count is modified by some reaction are called non-catalytic. Note that it is
+possible that a species is never created, but disappears as a consequence of an
+interaction. For example, in the reaction
+L+ L→ A+B,
+L is such as species. We define such species as non-catalytic, since their creation
+is possible by the law of reversibility, and thus they can leak.
+An Algorithmic Model of Leaks. A leak is a reaction of the type
+S → S′
+where S and S′ are arbitrary non-catalytic species produced by the algorithm.
+Note that the input and output species of a leak may be the same (although in
+that case the reaction is trivial). In the following, we make no assumptions on
+the way in which the input and output of a leak reaction are chosen—we assume
+that they are chosen adversarially. Instead, we assume an absolute bound on the
+probability of a leak.
+We assume that each reaction is either a leak reaction or a normal reaction,
+which follows the algorithm. We formalize this as follows.
+Definition 1. Given an algorithm, defined by a set of reactions, the set of
+catalysts is the set of species whose count does not change as a consequence of any
+reaction. A leak is a spurious reaction, which changes an arbitrary non-catalytic
+species to an arbitrary non-catalytic species. The leak rate β/n is the probability
+that any given interaction is a leak reaction.
+3.2 The Detection Problem
+In the following, we consider the following detection task: we are given a distinct
+species D, whose presence or absence must be detected by the algorithm, in
+the presence of leaks. More precisely, if the species D is present, then the
+algorithm should stabilize to a state in which molecules map to output value
+“detect”. Otherwise, if D is not present, then the algorithm should stabilize to
+a state in which molecules map to output value “non-detect”. To observe the
+algorithm’s output, we sample a molecule at random, and return its output
+mapping. (Alternatively, to boost accuracy, we can take a number of samples, and
+return the majority output mapping.) We require that species D are catalytic.
+4 The Robust-Detect Algorithm
+Description. As given in the problem statement, we assume that there exists
+a distinguished species D, which is to be detected, and which never changes
+state. Our algorithm implements a chain of detection species X1, . . . , Xs, for
+some parameter s, each of which maps to output “detect”, but with decreasing
+“confidence”. Further, we have a neutral species N , which maps to output “non-
+detect”. We assume that the parameter s = dlog ne, and that initially all molecules
+are in state N . We specify the transitions below, and provide the intuition behind
+them.
+Algorithm 1
+D +Xi → D +X1, ∀i ∈ {2, . . . , s}
+D +N → D +X1
+Xs +Xs → N +N
+Xs +N → N +N
+Xi +Xj → Xmin(i,j)+1 +Xmin(i,j)+1, ∀i, j ∈ {1, 2, . . . , s− 1}
+Xi +N → Xi+1 +Xi+1, ∀i ∈ {1, 2, . . . , s− 1}
+The intuition behind the algorithm is as follows. The “detecting” speciesX1, . . . , Xs
+are arranged in consecutive levels. Whenever a molecule meets D, it moves to
+the highest “alert” level, X1. Since leaks might produce this species as well, we
+decay it gracefully across s levels. After going through these levels, a molecule
+moves to neutral state N , in case it is not brought back either by meeting D, or
+some molecule at a lower alert level. For this, whenever two of these species Xi
+and Xj meet, they both move to level min(i, j) + 1. This reaction has the double
+purpose of both decaying the alert level of the molecule at the lower level, and
+of bringing back the molecule with the higher alert level. Further, whenever a
+molecule at level Xi meets a neutral molecule N , it advances its level by 1. At
+the same time, neutral molecules are turned into detector molecules whenever
+meeting some molecule at an alert level smaller than s.
+Intuitive Dynamics. Roughly, the chain of alert levels have the property that,
+for the first ∼ log n levels, the count roughly doubles with level index. At the
+same time, past this point, counts exhibit a steep (doubly exponential) drop, so
+that a small constant fraction of molecules are always neutral. The presence of
+D acts like a trigger, which maintains the chain in “active” state. The analysis in
+the next section makes this intuition precise. These dynamics are illustrated in
+Figure 1.
+5 Analysis
+Overview. We divide the analysis of the detection algorithm into two parts.
+First, we derive stationary probabilities of the underlying Markov chain of
+transitions of particles, by solving recursively the equations following from the
+(a) (b)
+0 5 10 15 20 25
+0.2
+0.4
+0.6
+0.8
+1.0
+level i
+0 5 10 15 20 25
+0.05
+0.10
+0.15
+0.20
+0.25
+level i
+pr
+ob
+ab
+ili
+ty
+th
+at
+a
+ra
+n
+d
+om
+m
+ol
+ec
+u
+le
+is
+X
+i
+pr
+o
+b
+ab
+ili
+ty
+th
+at
+a
+ra
+n
+d
+o
+m
+m
+o
+le
+cu
+le
+is
+o
+n
+e
+o
+f
+D
+,X
+1
+,.
+..
+,X
+i
+Number of molecules in level Level CDF
+dlog ne = 14 dlog ne = 14
+ 
+=
+0.
+1
+ 
+=
+0.
+1
+ 
+=
+0.
+01
+ 
+=
+0.
+01
+1
+D
+pr
+es
+en
+t
+1
+D
+pr
+es
+en
+t
+Fig. 1. Steady state probabilities of the Robust-Detect algorithm for n = 104 molecules.
+Three conditions are evaluated: (blue) 1 molecule of D is present and no leak (leak
+parameter β = 0); (orange, red) no D is present but with worst-case leak for false-
+positives (leak reactions Xi→X1 and N→X1) (orange: leak parameter β = 0.01, red:
+leak parameter β = 0.1). (a) The probabilities of each level i. (b) The cumulative
+probabilities of levels ≤ i, capturing the probability that a random molecule is in a
+“detect” state. Note that it is enough to set the number of levels s = 14 = dlogne to
+have both false positive and false negative error probabilities small, although for smaller
+leak rates (β = 0.01) increasing s beyond logn can help better distinguish true and
+false positives. Numerical probabilities are computed using equations (1) and (2).
+underlying dynamics. Later, we derive optimal bounds on the mixing time of
+this Markov chain—that is we show that probability distribution of states at
+every time t ≥ cn log n (for some constant c) is almost the same as the stationary
+distribution.
+Simplified Algorithm. For the purpose of analysis, let us consider a following
+rephrasing of the detection algorithm: molecule states are D,X1, X2, X3, . . ., and
+interactions are as follows:
+Algorithm 2
+D +Xi → D +X1,
+Xi +Xj → Xmin(i,j)+1 +Xmin(i,j)+1.
+This algorithm uses infinite number of states, thus it is useful only for purposes of
+theoretical analysis. However, it captures the behavior of the original algorithm in
+the following way: if in Algorithm 2 all states Xs+1, Xs+2, . . . are collapsed to N ,
+the transitions are equivalent to Algorithm 1. However, formulation of Algorithm 2
+is oblivious to parameter s, thus captures simultaneously the dynamics of all
+possible instances of Algorithm 1.
+5.1 Stationary Analysis
+Let us consider an initial state when k ≥ 0 instances of state D are present, with
+special attention given to k = 0 and k = 1. Those molecules do not change their
+state.
+We can imagine tracking a particular molecule through its state transitions,
+such that its state can be expressed as a Markov chain. In the following, we will
+focus on analyzing the stationary distribution of this Markov chain.
+For any i ∈ {1, 2, . . . , s}, we let p?i be the stationary probability that a molecule
+chosen uniformly at random is in state Xi. We let p?0 =
+k
+n be the (stationary)
+probability that the molecule is in the state D. Let p?≤i = p
+?
+0 + . . .+ p
+?
+i be the
+probability that a molecule is in any of the states D,X1, . . . , Xi.
+Let us now analyze these stationary probabilities.
+Stable State with No Leaks. We first analyze the simplified case where no
+leaks occur. A molecule u is in one of states D,X1, . . . , Xi at time t, in two cases:
+– It was in state D,X1, . . . , Xi at time t − 1, and did not get selected for a
+reaction, which occurs with probability 1− 2/n.
+– It got selected for a reaction with element u′, and either u or u′ was in one
+of states D,X1, . . . , Xi−1.
+Hence, by stationarity, we get that
+p?≤i = p
+?
+≤i
+(
+1− 2
+n
+)
++
+2
+n
+· (1− (1− p?≤(i−1))2).
+From this we get that
+1− p?≤i = (1− p?≤(i−1))2,
+which solves to
+p?≤i = 1−
+(
+1− k
+n
+)2i
+. (1)
+This gives us following estimates: if k ≥ 1, then p?i ≈ 2i−1 kn for i ≤ log(n/k).
+Additionally, for i = log(n/k) + 1 + j, p?i ≈ e−2
+j
+. Thus, for i ≥ log(n/k) +
+Θ(log log n) in all practicalities p?i ≈ 0.
+To analyze the probability of detection when k = 1, we sum probabilities for
+all i from 0 to s = dlog ne
+Pr[detect] =
+s∑
+i=0
+p?i = p
+?
+≤s ≥ 1−
+(
+1− 1
+n
+)n
+≥ 1− 1
+e
+.
+Probability of False Positives with Leaks. A useful side effect of the previous
+analysis is that we also get probability bounds for detection in the case where D
+is not present, i.e. false positives. We model this case as follows. Assume that
+there exists an upper bound λ on the probability that a certain reaction is a leak.
+Examining the structure of the algorithm, we note that the worst-case adversarial
+application of leaks would be if this probability is entirely concentrated into leaks
+which produce species X1.
+To preserve molecular count, we assume the following simplified leak model,
+which is equivalent to the general one, but easier to deal with in the confines of
+our algorithm.
+Each reaction is a leak with probability λ = β/n, where β  1 is a small
+constant. If a reaction is a leak, it selects a molecule at random, and transforms it
+into an arbitrary state. In this case, we will assume adversarially that all leaked
+molecules are transformed into state X1. Notice that the assumption that β  1
+is required to separate this setting from the case where D is present in the system,
+where the probability of producing state X1 is 2/n.
+We continue with calculations of p?0, p?1, . . . for the above formulation. Note
+that the recurrence relation for p?≤i, i ≥ 1 is changed as follows:
+– If at that round there was no leak, the transition probabilities are as previously.
+This happens with probability 1− βn .
+– If there was a leak, then the molecule either is selected as a leaked molecule
+(this happens with probability 1n ·
+β
+n ) or it was not selected as a leaked
+molecule, but it was already in the proper state (probability βn · n−1n p?≤i).
+The recursive formulation gives
+p?≤i =
+(
+p?≤i
+(
+1− 2
+n
+)
++
+2
+n
+(
+1− (1− p?≤(i−1))2
+))(
+1− β
+n
+)
++
+(
+1
+n
++
+n− 1
+n
+p?≤i
+)
+β
+n
+.
+Which is equivalent to
+1− p?≤i =
+(
+1− βn
+)
+(
+1− β2n
+) (1− p?≤(i−1))2
+leading to (using estimate (1− βn )/(1−
+β
+2n ) ≈ (1−
+β
+2n ))
+p?≤i ≈ 1−
+(
+1− β
+2n
+)1+2+...+2i−1
+= 1−
+(
+1− β
+2n
+)2i−1
+. (2)
+This gives us following estimates: p?i ≈ 2i−2 βn for i ≤ log(2n/β). Additionally,
+for i = log(2n/β) + 1 + j, p?i ≈ e−2
+j
+. Thus, for i ≥ log(2n/β) + Θ(log logn) in
+all practicalities p?i ≈ 0.
+This immediately implies that
+Pr[detect] =
+s∑
+i=0
+p?i = p
+?
+≤s ≤ 1−
+(
+1− β
+2n
+)2n
+= 1− 1
+eβ
+≈ β,
+which means that the probability that a randomly chosen molecule is in detect
+state when chosen uniformly at random is at most β.
+Probability of False Negatives with Leaks. Under the same leak model, it is
+easy to notice that the “best” adversarial strategy for our algorithm in case D is
+present is to concentrate all leaks to create the neutral species N (or X∞ in case
+of Algorithm 2). It is easy to see that this just decreases the total probability of
+detect states by the leak probability λ = β/n. More formally, we compute once
+again stationary probabilities. The recurrent relation is
+p?≤i =
+(
+p?≤i
+(
+1− 2
+n
+)
++
+2
+n
+· (1− (1− p?≤(i−1))2)
+)(
+1− β
+n
+)
++
+β
+n
+· n− 1
+n
+p?≤i.
+Using estimate (1− βn )/(1−
+β
+2n ) ≈ (1−
+β
+2n ) we reach
+p?≤i =
+(
+1− β
+2n
+)
+(1− (1− p?≤(i−1))2).
+Thus we have for the first log(n/k) levels the dampening factor of (1− β/(2n))
+per level (compared to the leakless case). It can be easily shown by induction
+that (
+1− β
+2n
+)i(
+1− k
+n
+)2i
+≤ p?≤i ≤
+(
+1− k
+n
+)2i
+.
+The estimates for p?i follow from the leakless case, after taking into the account
+the composed dampening factor:
+Pr[detect] =
+s∑
+i=0
+p?i = p
+?
+≤s ≥
+(
+1− 1
+e
+)
+·
+(
+1− β
+2n
+)logn
+= 1− 1
+e
+−O
+(
+log n
+n
+β
+)
+.
+Finally, we summarize the results in this section as follows:
+Theorem 1. Assuming leak rate β/n for β  1, Robust-Detect guarantees the
+following.
+– The probability of a false positive is at most β.
+– The probability of a false negative is at most 1/e+O(β · (log n)/n).
+Notice that these probabilities can be boosted by standard sampling tech-
+niques.
+5.2 Convergence Analysis
+We now proceed with an analysis of the convergence speed of the previously
+described protocols. To avoid separate analysis for each of the aforementioned
+cases (no leaks, false positives, false negatives) and to be independent from all
+possible initializations of the algorithm, we first start with showing that, under
+no leaks and with no D present, all states X1, . . . , Xc are quickly killed.
+In this section, it is more convenient to use t to refer to the total number of
+interactions, rather than parallel time. To convert to parallel time, one needs to
+divide by n, the number of molecules.
+Lemma 1. Assume arbitrary (adversarial) initial state in t = 0 and evolution
+with no leaks (β = 0) and no D is present. For any c(n) ≥ 1, there is t =
+O(n · (c(n) + log n)) such that with probability 1− 1/nΘ(1) (with high probability)
+there is no molecule in any of the states X1, X2, . . . , Xc(n) after t interactions.
+Proof. We assign a potential to each molecule, based on the state it is currently in:
+Φ(Xi) = 3
+−i. We also define a global potential Φt as sum of all molecular potentials
+after t interactions. Observe, that when two molecules interact, following rule
+Xi +Xj → Xmin(i,j)+1 +Xmin(i,j)+1, then there is:
+Φ(Xmin(i,j)+1) + Φ(Xmin(i,j)+1) ≤ 2/3 · (Φ(Xi) + Φ(Xj)) ,
+which can be interpreted that each interacting molecule loses at least 1/3 of its
+potential. Since each molecule participates in an interaction with probability 2n
+in each round, the following bound holds:
+E[Φt+1 − Φt|Φt] ≥ ·
+∑
+v
+Pr(v interacts in round t) · 1
+3
+Φt(v) =
+2
+3n
+Φt,
+E[Φt+1|Φt] ≤
+(
+1− 2
+3n
+)
+Φt.
+Substituting Φ0 ≤ n and fixing t ≥ 32n ln(n · 3c(n) · nΘ(1)) = O(n(c(n) + log n+
+Θ(log n))) we have
+E[Φt] ≤
+(
+1− 2
+3n
+)t
+· n ≤ e− ln(n·3c(n)·nΘ(1)) · n = 3−c(n) · 1
+nΘ(1)
+.
+By Markov’s inequality, this means that there is no molecule in any of the states
+X1, X2, . . . , Xc with probability at least 1−n−Θ(1), that is with high probability.
+ut
+We mention one additional useful property of Algorithm 2, that its actions on
+population are decomposable with respect to levels. That is, define levelt(u) = i
+if molecule u at time t is in state Xi, and levelt(u) = 0 if it is in state D.
+Observation 1 Let {u1, u2, . . . , un}, {v1, v2, . . . , vn}, {w1, w2, . . . , wn} be 3 dis-
+joint populations each on n molecules, following evolution defined by Algorithm 2.
+Moreover, let their evolutions be coupled: at each time t, in each population the
+corresponding molecules interact (i.e., the interaction is ui + uj , vi + vj , wi +wj
+in the three populations for some i, j).
+If ∀ilevel0(ui) = min(level0(vi), level0(wi)), then at any time t > 0 :
+∀ilevelt(ui) = min(levelt(vi), levelt(wi)).
+This observation can be naturally generalized to more than 3 populations. As
+shown below, the observation implies that to analyze detection under noisy start,
+we can decouple starting noise from detected particle and analyze evolution
+under those two separately. Denote by pi(t) and p≤i(t) the probability for a ran-
+domly picked molecule after t interactions to be in the state Xi or D,X1, . . . , Xi
+respectively.
+Theorem 2. Fix arbitrary leak model (i.e. no leaks, false-positives, false-negatives)
+and arbitrary concentration of D. For any c ≥ 1, and t = Ω(n · (c+ log n)), there
+is ∣∣p?≤c − p≤c(t)∣∣ ≤ 1/nΘ(1),
+where p? is the stationary probability distribution of the identical process.
+Proof. First, for simplicity we collapse all states Xc+1, Xc+2, . . . into N , since it
+has no effect on p≤c distributions. Consider a population of size n, under no leaks,
+no D, evolution. By Lemma 1, in τ = O(n · (c + log n)) steps it reaches all-N
+state, regardless of initial configuration, with high probability. Thus evolution
+of any population {ui}, under no leaks, with D present, is a coupling (as in
+Observation 1) of following evolutions:
+– initial configuration of population {ui}, with each D replaced with N ;
+– for every timestep ti such that D interacted with Xi or N creating X1, we
+couple a population with corresponding molecule set to X1 and every other
+molecule set to N , shifted in time so its evolution starts at time ti.
+Observe, that evolution of population of both types will reach all-N state in
+τ steps, with high probability. Thus, conditioned on this high probability, the
+configuration at any t ≥ τ is the result of coupling of all-N (result of evolution
+of first type population) with possibly several configurations of the second type,
+where at each timestep t′ ∈ [t− τ, t] such population was created independently
+with some probability only depending on n and k. However, the coupling we just
+described is invariant from the choice of t, as long as t ≥ τ . Thus, for any t1, t2 ≥ τ ,
+there is |p≤c(t1)− p≤c(t2)| ≤ 1/nΘ(1). Since p?≤c = limt→∞ 1t
+∑t
+i=1 p≤c(i), the
+claimed bound follows.
+To take into account errors, we say that whenever there is a leak changing
+state of molecule v to some state S at time t, we change state of v at that time
+in all existing populations to N , and create new population where v has state S,
+and all other molecules are in N state. The same reasoning as in the error-less
+case follows, since switching molecules to N state it only speeds up convergence of
+populations to all-N state and since populations created due to leaks are created
+at each step with the same probability depending only on n and error model. ut
+6 Simulation Results
+We simulated the Robust-Detect algorithm (Algorithm 1) using a modified version
+of the CRNSimulatorSSA Mathematica package [17]. Figure 2 shows the shape
+of typical trajectories when there is one molecule in state D (k = 1), compared
+with no molecules in state D (k = 0) but with the worst-case leak for false-
+positives. Note that D is quickly detected if present, and if absent the system
+exhibits random perturbations that are quickly extinguished and are clearly
+distinguishable from the true positive case.
+Fig. 2. Typical time-evolution of the Robust-Detect algorithm (Algorithm 1). Three
+colors correspond to the three conditions described in Fig. 1: (blue) 1 molecule of D is
+present and no leak (leak parameter β = 0); (orange, red) no D is present but with
+worst-case false-positive leak Xi→X1 and N→X1 (orange: leak parameter β = 0.01,
+red: leak parameter β = 0.1). All Xi states map to output value “detect”, and thus we
+plot the sum of all their counts. (a) s = 14 layers, β = 0.1 (red). (b) s = 17 layers,
+β = 0.01 (orange). See Fig. 1 for the corresponding steady state probabilities. Note
+that with smaller leak (β = 0.01), it is possible to better distinguish true positives and
+false positives by increasing the number of layers (from 14 to 17). In all cases there
+are n = 104 molecules, and the initial configuration is all molecules in neutral state N .
+Parallel time (number of interactions divided by n) corresponds to the natural model
+of time where each molecule can interact with a constant number of other molecules
+per unit time.
+7 Conclusions
+We have considered the problem of modeling and withstanding leaks in chemical
+reaction networks, expressed as population protocols. We have presented an
+arguably simple algorithm which is probabilistically correct under assumptions
+on the leak rate, and converges quickly to the correct answer.
+Beyond the specific example of robust detection, we hope that our results
+motivate more systematic modeling of leaks, and further work on algorithmic
+techniques to withstand them. As such errors appear to spring from the basic
+laws of chemistry, their explicit treatment appears to be necessary. The authors
+found it surprising that many of the algorithmic techniques developed in the
+context of deterministically correct population protocols might not carry over to
+implementations, due to their inherent non-robustness to leaks.
+In future work, we plan to perform an exhaustive examination of which of
+the current algorithmic techniques could be rendered leak-robust, and whether
+known algorithms can be modified to withstand leaks via new techniques. Another
+interesting avenue for future work is lower bounds on the set of computability
+or complexity of fundamental predicates in the leak model. Finally, we would
+like to examine whether our robust detection algorithm can be implemented in
+strand displacement systems.
+Acknowledgments. We thank Lucas Boczkowski and Luca Cardelli for helpful
+comments on the manuscript.
+References
+1. M. Gopalkrishnan, “Catalysis in reaction networks,” Bulletin of mathematical biology,
+vol. 73, no. 12, pp. 2962–2982, 2011.
+2. D. Soloveichik, G. Seelig, and E. Winfree, “DNA as a universal substrate for chemical
+kinetics,” Proceedings of the National Academy of Sciences, vol. 107, no. 12, pp.
+5393–5398, 2010.
+3. L. Cardelli, “Two-domain DNA strand displacement,” Mathematical Structures in
+Computer Science, vol. 23, no. 02, pp. 247–271, 2013.
+4. Y.-J. Chen, N. Dalchau, N. Srinivas, A. Phillips, L. Cardelli, D. Soloveichik, and
+G. Seelig, “Programmable chemical controllers made from DNA,” Nature Nanotech-
+nology, vol. 8, no. 10, pp. 755–762, 2013.
+5. D. Y. Zhang, A. J. Turberfield, B. Yurke, and E. Winfree, “Engineering entropy-
+driven reactions and networks catalyzed by DNA,” Science, vol. 318, no. 5853, pp.
+1121–1125, 2007.
+6. D. Angluin, J. Aspnes, Z. Diamadi, M. Fischer, and R. Peralta, “Computation in
+networks of passively mobile finite-state sensors,” Distributed Computing, vol. 18,
+pp. 235–253, 2006, preliminary version appeared in PODC 2004.
+7. R. M. Karp, C. Schindelhauer, S. Shenker, and B. Vöcking, “Randomized rumor
+spreading,” in 41st Annual Symposium on Foundations of Computer Science, FOCS
+2000. IEEE Computer Society, 2000, pp. 565–574.
+8. J. J. Hopfield, “Kinetic proofreading: a new mechanism for reducing errors in biosyn-
+thetic processes requiring high specificity,” Proceedings of the National Academy of
+Sciences, vol. 71, no. 10, pp. 4135–4139, 1974.
+9. C. Thachuk, E. Winfree, and D. Soloveichik, “Leakless DNA strand displacement
+systems,” in DNA Computing and Molecular Programming. Springer, 2015, pp.
+133–153.
+10. D. Angluin, J. Aspnes, and D. Eisenstat, “A simple population protocol for fast
+robust approximate majority,” Distributed Computing, vol. 21, no. 2, pp. 87–102,
+2008.
+11. L. Cardelli, “Morphisms of reaction networks that couple structure to function,”
+BMC Systems Biology, vol. 8, no. 1, p. 84, 2014.
+12. B. Pittel, “On spreading a rumor,” SIAM Journal on Applied Mathematics, vol. 47,
+no. 1, pp. 213–223, 1987.
+13. B. Doerr, C. Doerr, S. Moran, and S. Moran, “Simple and optimal randomized
+fault-tolerant rumor spreading,” Distributed Computing, vol. 29, no. 2, pp. 89–104,
+2016.
+14. L. Boczkowski, A. Korman, and E. Natale, “Minimizing message size in stochastic
+communication patterns: Fast self-stabilizing protocols with 3 bits,” in Proceedings
+of the Twenty-Eighth Annual ACM-SIAM Symposium on Discrete Algorithms,
+SODA 2017, pp. 2540–2559.
+15. B. Dudek and A. Kosowski, “Spreading a confirmed rumor: A case for oscillatory
+dynamics,” CoRR, vol. abs/1705.09798, 2017.
+16. D. Soloveichik, “Robust stochastic chemical reaction networks and bounded tau-
+leaping,” Journal of Computational Biology, vol. 16, no. 3, pp. 501–522, 2009.
+17. http://users.ece.utexas.edu/~soloveichik/crnsimulator.html.
+

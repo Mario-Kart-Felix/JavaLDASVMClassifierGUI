@@ -16,6 +16,8 @@ import static algorithm.lda.LdaGibbsSampler.shadeDouble;
 
 import java.util.*;
 
+import adpater.file.TextFileAdapter;
+
 /**
  * @author hankcs
  */
@@ -30,6 +32,9 @@ public class LdaUtil {
 	 *            limit of max words in a topic
 	 * @return a map array
 	 */
+
+	private static TextFileAdapter textFileAdapter = new TextFileAdapter();
+
 	public static Map<String, Double>[] translate(double[][] phi, Vocabulary vocabulary, int limit) {
 		limit = Math.min(limit, phi[0].length);
 		Map<String, Double>[] result = new Map[phi.length];
@@ -75,13 +80,32 @@ public class LdaUtil {
 		}
 	}
 
+	public static void explainToLogFile(Map<String, Double>[] result, String logFilePath) {
+		int i = 0;
+		for (Map<String, Double> topicMap : result) {
+			textFileAdapter.writeAppendToFile("Latent topic [" + i + "] :", logFilePath);
+			System.out.printf("Topic %d :\n", i++);
+			explainToLogFile(topicMap, logFilePath);
+			System.out.println();
+		}
+	}
+
 	public static void explain(Map<String, Double> topicMap) {
 		for (Map.Entry<String, Double> entry : topicMap.entrySet()) {
 			System.out.println(entry);
 		}
 	}
 
+	public static void explainToLogFile(Map<String, Double> topicMap, String logFilePath) {
+		for (Map.Entry<String, Double> entry : topicMap.entrySet()) {
+			System.out.println(entry);
+			textFileAdapter.writeAppendToFile(entry.toString(), logFilePath);
+		}
+		textFileAdapter.writeAppendToFile("------------------------\n", logFilePath);
+	}
+
 	public static void dispTheta(double[][] theta) {
+
 		System.out.println();
 		System.out.println();
 		System.out.println("Document--Topic Associations, Theta[d][k]");
@@ -93,56 +117,153 @@ public class LdaUtil {
 		for (int m = 0; m < theta.length; m++) {
 			System.out.print(m + "\t");
 			for (int k = 0; k < theta[m].length; k++) {
-				//System.out.print(theta[m][k] + " ");
+				// System.out.print(theta[m][k] + " ");
 				System.out.print(shadeDouble(theta[m][k], 1) + " ");
 			}
 			System.out.println();
 		}
 		System.out.println();
 	}
-	
+
+	public static void dispThetaToLogFile(double[][] theta, String logFilePath) {
+
+		System.out.println();
+		System.out.println();
+
+		System.out.println("\nDocument--Topic Associations, Theta[d][k]");
+		textFileAdapter.writeAppendToFile("Document--Topic Associations, Theta[d][k]", logFilePath);
+
+		String overallTopicLine = "d\\k\t";
+		for (int m = 0; m < theta[0].length; m++) {
+			overallTopicLine += "   " + m % 10 + "    ";
+			System.out.print("   " + m % 10 + "    ");
+		}
+
+		textFileAdapter.writeAppendToFile(overallTopicLine, logFilePath);
+		System.out.println();
+
+		for (int m = 0; m < theta.length; m++) {
+
+			System.out.print(m + "\t");
+
+			String eachDocLine = m + "\t";
+
+			for (int k = 0; k < theta[m].length; k++) {
+				// System.out.print(theta[m][k] + " ");
+				System.out.print(shadeDouble(theta[m][k], 1) + " ");
+				eachDocLine += shadeDouble(theta[m][k], 1) + " ";
+			}
+
+			textFileAdapter.writeAppendToFile(eachDocLine, logFilePath);
+
+			System.out.println();
+
+		}
+
+		System.out.println();
+		// textFileAdapter.writeAppendToFile("\n", logFilePath);
+	}
+
 	public static void dispThetaInNum(double[][] theta) {
+
 		System.out.println();
 		System.out.println();
 		System.out.println("Document--Topic Associations, Theta[d][k]");
 		System.out.print("d\\k\t");
-		
+
 		for (int m = 0; m < theta[0].length; m++) {
-			System.out.print("   " + m % 10 + "    ");
+			System.out.print("\t" + m % 10 + "\t            ");
 		}
-		
+
 		System.out.println();
 		for (int m = 0; m < theta.length; m++) {
 			System.out.print(m + "\t");
 			for (int k = 0; k < theta[m].length; k++) {
-				System.out.print(theta[m][k] + " ");
-				//System.out.print(shadeDouble(theta[m][k], 1) + " ");
+				System.out.print(theta[m][k] + "\t");
+				// System.out.print(shadeDouble(theta[m][k], 1) + " ");
 			}
 			System.out.println();
 		}
 		System.out.println();
+
+	}
+
+	public static void dispThetaInNumToLogFile(double[][] theta, String logFilePath) {
+
+		System.out.println();
+		System.out.println();
+		System.out.println("Document--Topic Associations, Theta[d][k]");
+		System.out.print("d\\k\t");
+
+		textFileAdapter.writeAppendToFile("\n", logFilePath);
+
+		String overAllTopicLine = "d\\k\t";
+		for (int m = 0; m < theta[0].length; m++) {
+			/*System.out.print("\t" + m % 10 + "\t            ");*/
+			overAllTopicLine += "\t" + m % 10 + "\t            ";
+
+		}
+		
+		textFileAdapter.writeAppendToFile(overAllTopicLine, logFilePath);
+
+		for (int m = 0; m < theta.length; m++) {
+			
+			System.out.print(m + "\t");
+			String eachDocumentFile = m + "\t";
+			
+			for (int k = 0; k < theta[m].length; k++) {
+				System.out.print(theta[m][k] + "\t");
+				eachDocumentFile += theta[m][k] + "\t";
+				// System.out.print(shadeDouble(theta[m][k], 1) + " ");
+			}
+			
+			textFileAdapter.writeAppendToFile(eachDocumentFile, logFilePath);
+			System.out.println();
+		}
+		
+		System.out.println();
+
 	}
 
 	public static void displayProbTopic(double[][] theta) {
-		
+
 		System.out.println();
 		System.out.println();
 		// System.out.println("Document--Topic Associations, Theta[d][k]");
 
 		for (int k = 0; k < theta[0].length; k++) {
-	
+
 			double totalProb = 0;
-			
+
 			for (int m = 0; m < theta.length; m++) {
-				totalProb+=theta[m][k];
+				totalProb += theta[m][k];
 			}
-			
+
 			System.out.println("Topic -> [" + k + "] -> [" + totalProb + "]");
-			
-			
+
 		}
-		
-		
+
+	}
+
+	public static void displayProbTopicToLogFile(double[][] theta, String logFilePath) {
+
+		System.out.println();
+		System.out.println();
+		// System.out.println("Document--Topic Associations, Theta[d][k]");
+		textFileAdapter.writeAppendToFile("\nDocument--Topic total probability, Theta[d][k]", logFilePath);
+
+		for (int k = 0; k < theta[0].length; k++) {
+
+			double totalProb = 0;
+
+			for (int m = 0; m < theta.length; m++) {
+				totalProb += theta[m][k];
+			}
+
+			System.out.println("Latent topic -> [" + k + "] -> [" + totalProb + "]");
+			textFileAdapter.writeAppendToFile("Latent topic -> [" + k + "] -> [" + totalProb + "]", logFilePath);
+
+		}
 
 	}
 

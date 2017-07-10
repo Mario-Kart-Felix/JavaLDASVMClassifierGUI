@@ -1,0 +1,888 @@
+Grand Challenge: StreamLearner – Distributed Incremental
+Machine Learning on Event Streams
+Christian Mayer, Ruben Mayer, and Majd Abdo
+Institute for Parallel and Distributed Systems
+University of Stuttgart, Germany
+rstname.lastname@ipvs.uni-stuttgart.de
+ABSTRACT
+Today, massive amounts of streaming data from smart devices need
+to be analyzed automatically to realize the Internet of Things. The
+Complex Event Processing (CEP) paradigm promises low-latency
+pattern detection on event streams. However, CEP systems need
+to be extended with Machine Learning (ML) capabilities such as
+online training and inference in order to be able to detect fuzzy
+patterns (e.g. outliers) and to improve pattern recognition accuracy
+during runtime using incremental model training. In this paper, we
+propose a distributed CEP system denoted as StreamLearner for
+ML-enabled complex event detection. The proposed programming
+model and data-parallel system architecture enable a wide range of
+real-world applications and allow for dynamically scaling up and
+out system resources for low-latency, high-throughput event pro-
+cessing. We show that the DEBS Grand Challenge 2017 case study
+(i.e., anomaly detection in smart factories) integrates seamlessly
+into the StreamLearner API. Our experiments verify scalability and
+high event throughput of StreamLearner.
+CCS CONCEPTS
+•Computingmethodologies→Vector / streaming algorithms;
+Distributed programming languages; Machine learning; • The-
+ory of computation → Streaming models; • Software and its
+engineering → API languages;
+KEYWORDS
+Complex Event Processing, Machine Learning, Stream Processing
+ACM Reference format:
+Christian Mayer, Ruben Mayer, and Majd Abdo. 2017. Grand Challenge:
+StreamLearner – Distributed Incremental Machine Learning on Event Streams.
+In Proceedings of DEBS ’17, Barcelona, Spain, June 19-23, 2017, 6 pages.
+DOI: 10.1145/3093742.3095103
+(c) Owner 2017. This is the authors’ version of the work. It is posted here for your personal use. Not for redistribution.
+The denitive version is published in Proceedings of ACM International Conference on Distributed and Event-Based
+Systems 2017 (DEBS ’17), http://dx.doi.org/10.1145/3093742.3095103.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for prot or commercial advantage and that copies bear this notice and the full citation
+on the rst page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specic permission
+and/or a fee. Request permissions from permissions@acm.org.
+DEBS ’17, Barcelona, Spain
+© 2017 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+978-1-4503-5065-5/17/06. . . $15.00
+DOI: 10.1145/3093742.3095103
+1 INTRODUCTION AND BACKGROUND
+In recent years, the surge of Big Streaming Data being available
+from sensors [12], social networks [17], and smart cities [3], has led
+to a shift of paradigms in data analytics throughout all disciplines.
+Instead of batch-oriented processing [8, 14, 15], stream-oriented
+data analytics [7] is becoming the gold standard. This has led to the
+development of scalable stream processing systems that implement
+the relational query model of relational data base management
+systems (RDBMS) as continuous queries on event streams [2], and
+Complex Event Processing systems that implement pattern matching
+on event streams [6].
+Query-driven stream processing, however, demands a domain
+expert to specify the analytics logic in a deterministic query lan-
+guage with a query that exactly denes which input events are
+transformed into which output events by an operator. However, an
+explicit specication is not always possible, as the domain expert
+might rather be interested in a more abstract query such as “Re-
+port me all anomalies that molding machine 42 experiences on the
+shopoor.” In this example, it is infeasible to explicitly specify all
+event patterns that can be seen as an anomaly.
+There have been dierent proposals how to deal with this issue.
+EP-SPARQL employs background ontologies to empower (com-
+plex) event processing systems with stream reasoning [1] – while
+focusing on the SPARQL query language. On the other hand, sev-
+eral general-purpose systems for stream processing exist such as
+Apache Kafka [11], Apache Flink [4], Apache Storm [19], Apache
+Spark Streaming [22]. Although these systems are powerful and
+generic, they are not tailored towards parallel and scalable incre-
+mental model training and inference on event streams.
+At the same time, an increasing body of research addresses incre-
+mental (or online) updates of Machine Learning (ML) models: there
+are incremental algorithms for all kinds of ML techniques such
+as support vector machines [5], neural networks [9], or Bayesian
+models [21]. Clearly, a stream processing framework supporting
+intuitive integration of these algorithms would be highly benecial
+– saving the costs of hiring expensive ML experts to migrate these
+algorithms to the stream processing systems.
+In this paper, we ask the question: how can we combine event-
+based stream processing (e.g., for pattern recognition) with pow-
+erful Machine Learning functionality (e.g., to perform anomaly
+detection) in a way that is compatible with existing incremental ML
+algorithms? We propose the distributed event processing system
+StreamLearner that decouples expertise of Machine Learning from
+Distributed CEP using a general-purpose modular API. In particular,
+we provide the following contributions.
+ar
+X
+iv
+:1
+70
+6.
+08
+42
+0v
+1 
+ [
+cs
+.D
+C
+] 
+ 2
+6 
+Ju
+n 
+20
+17
+DEBS ’17, June 19-23, 2017, Barcelona, Spain Mayer et al.
+• An architectural design and programming interface for
+data-parallel CEP that allows for easy integration of exist-
+ing incremental ML algorithms (cf. Section 3).
+• An algorithmic solution to the problems of incremental K-
+Means clustering and Markov model training in the context
+of anomaly detection in smart factories (cf. Section 4).
+• An evaluation showing scalability of the StreamLearner
+architecture and throughput of up to 500 events per second
+using our algorithms for incremental ML model updates
+(cf. Section 5).
+2 CHALLENGES AND GOALS
+Machine Learning algorithms train a model using a given set of
+training data, e.g., building clusters, and then apply the trained
+model to solve problems, e.g., classifying unknown events. In the
+course of streaming data becoming available from sensors, models
+need to be dynamically adapted. That means, that new data is taken
+into account in the learned model, while old data “fades out” and
+leaves the model as it becomes irrelevant. This can be modeled by a
+sliding window over the incoming event streams: Events within the
+window are relevant for the model training, whereas events that fall
+out of the window become irrelevant and should not be reected
+in the model any longer. Machine Learning on sliding windows is
+also known as non-stationary Machine Learning, i.e., the problem
+of keeping a model updated as the underlying streaming data gen-
+eration “process” underlies a changing probability distribution. To
+adapt the ML model online, there are dierent possibilities. For in-
+stance, incremental algorithms change the model in a step-by-step
+fashion. The challenge in doing so is to support incremental pro-
+cessing – i.e., streaming learning. The model should not be re-built
+from scratch for every new window, but rather incrementally be
+updated with new data while old data is removed.
+Another challenge in ML in streaming data is that data from
+dierent streams might lead to independent models. For instance,
+data captured in one production machine might not be suitable to
+train the model of another production machine. The challenge is to
+determine which independent models shall be built based on which
+data from which incoming event streams. Further, the question is
+how to route the corresponding events to the appropriate model.
+When these questions are solved, the identied machine learning
+models can be built in parallel – enabling scalable, low-latency, and
+high-throughput stream processing.
+3 STREAMLEARNER
+In this section, we rst give an overview about the StreamLearner
+architecture, followed by a description of the easy-to-use API for
+incremental machine learning and situation inference models.
+3.1 System Overview
+The architecture of StreamLearner is given in Figure 1. In order
+to parallelize ML-based computation, we have extended the split-
+process-merge architecture of traditional event-based systems [16–
+18]. The splitter receives events via the event input stream and
+forwards them to independent processing units, denoted as tube-ops,
+according to its splitting logic. Each tube-op atomically performs
+ML-based incremental stream processing by reading an event from
+Tube-op 1
+Tube-op 2
+Tube-op t
+Machine 1
+Machine 2
+Machine m
+Training Inference
+𝜔1
+𝜔2
+Stateful operator
+Stateless operator
+Model Μ
+Trainer Predictor
+Μ′
+Input Output
+Splitter Merger
+Scale out
+Scale up
+Shaping
+Event queue
+𝑒𝑖
+Event 
+Input 
+Stream
+…
+…
+Model Μ′
+Event 
+Output 
+Stream
+𝑒𝑖
+1
+𝑒𝑖
+2
+𝑒𝑖
+3
+Figure 1: System Architecture
+the in-queue, processing the event, and forwarding the output
+event to the merger. The merger decides about the nal events on
+the event output stream (e.g. sorts the events from the dierent
+tube-ops by timestamp to provide a consistent ordering of the
+event output stream). Due to the independent processing of events,
+the architecture supports both, scale-up operations by spawning
+more threads per machine and scale-out operations by adding more
+machines.
+Each tube-op processes an event in three phases: shaping, train-
+ing, and inference. In the shaping phase, it performs stateless pre-
+processing operations ω1 and ω2 (denoted as shaper) to transform
+the input event into appropriate formats. In the training phase, the
+stateful trainer module incrementally updates the model parame-
+ters of model M (e.g. a neural network in Figure 1) according to the
+user-specied model update function. In the inference phase, the
+updated model and the preprocessed event serve as an input for the
+stateful predictor performing a user-dened inference operation
+and transforming the updated model and the input event to an
+output event with the model-driven prediction.
+Note that the StreamLearner API does not restrict application
+programmers to perform training and inference on dierent event
+data. Hence, application programmers are free to use either disjoint
+subsets, or intersecting subsets of events in the stream for training
+and inference. Although it is common practice in ML to separate
+data that is used for training and inference, we still provide this ex-
+ibility, as in real-world streams we might use some events for both,
+incorporating changing patterns into the ML model and initiating
+an inference event using the predictor. However, the application
+programmer can also separate training and inference data by den-
+ing the operators in the tube-op accordingly (e.g. generating a
+dummy event as input for the predictor to indicate that no inference
+step should be performed). Furthermore, the application program-
+mer can also specify whether the training should happen before
+inference or vice versa.
+3.2 Programming Model
+The application programmer species the following functions in
+order to use the StreamLearner framework in a distributed environ-
+ment.
+3.2.1 Splier. Given an event ei , the application programmer
+denes a stateful splitting function split(ei ) that returns a tuple
+Grand Challenge: StreamLearner – Distributed Incremental
+Machine Learning on Event Streams DEBS ’17, June 19-23, 2017, Barcelona, Spain
+(mid, tid, ei ) dening the tube-op tid on machinemid that receives
+event ei .
+3.2.2 Shaping. The stateless shaper operationsω1(ei ) andω2(ei )
+return modied events e1i and e
+2
+i that serve as input for the trainer
+and the predictor module. The default shaper performs the identity
+operation.
+3.2.3 Trainer. The stateful trainer operation trainer (e1i ) returns
+a reference to the updated model object M ′. The application pro-
+grammer can use any type of machine learning model as long as
+the model can be used for inference by the predictor. If the model
+M remains unchanged after processing event e1i , the trainer must
+return a reference to the unchanged model M in order to trigger
+the predictor for each event. StreamLearner performs a delaying
+strategy when the application programmer prefers inference before
+learning. In this case, the tube-op rst executes the predictor on
+the old model M and executes the trainer afterwards to update the
+model.
+3.2.4 Predictor. The stateful predictor receives a reference to
+model M ′ and input (event) e2i and returns the predicted event
+e3i = predictor (M
+′, e2i ).
+3.2.5 Merger. The stateful merger receives predicted output
+events from the tube-ops and returns a sequence of events that is put
+to the event output stream, i.e.,merдer (e3i ) = f (e
+3
+0 , ..., e
+3
+j , ..., e
+3
+i ) for
+j < i and any function f . Any aggregator function, event ordering
+scheme, or ltering method can be implemented by the merger.
+4 CASE STUDY: ANOMALY DETECTION IN
+SMART FACTORIES
+In this section, we exemplify usage of our StreamLearner API based
+on a realistic use case for data analytics posed by the DEBS Grand
+Challenge 20171 [10].
+4.1 Problem Description
+In smart factories, detecting malfunctioning of production machines
+is crucial to enable automatic failure correction and timely reactions
+to bottlenecks in the production line. The goal of this case study
+is to detect anomalies, i.e., abnormal sequences of sensor events
+quantifying the state of the production machines. In particular, the
+input event stream consists of events transporting measurements
+from a set of production machines P to an anomaly detection oper-
+ator. The events are created by the set of sensors S that monitor the
+production machines. We include the time stamps of each measured
+sensor event by dening a set of discrete time steps DT . Each event
+ei = (pi ,di , si , ti ) consists of a production machine id pi ∈ P that
+was monitored, a numerical data value di ∈ R quantifying the state
+of the production machine (e.g. temperature, pressure, failure rate),
+a sensor with id si ∈ S that has generated the event, and a time
+stamp ti ∈ DT storing the event creation time.
+The anomaly detection operator has to pass three stages for each
+event-generating sensor (cf. Figure 2).
+First, it collects all events ei that were generated within the last
+W time units (denoted as event window) and clusters the events ei
+1http://www.debs2017.org/call-for-grand-challenge-solutions/
+𝑒10
+K-means
+𝑒9 𝑒8 𝑒7 𝑒6𝑒5
+𝐶1 𝐶2 𝐶3
+𝑒11… Markov 
+Training
+𝑇 =
+0 0 1
+ 1 3  
+1
+3  
+1
+3
+0 1 0
+Anomalie
+Detection
+𝑃(𝐶2 → 𝐶3 → 𝐶2 → 𝐶2 → 𝐶1) < 𝜃?
+Yes / No
+𝑊 time units
+𝐾 cluster centers
+𝑀 iterations
+Transition matrix 𝑁 number of transitions
+𝜃 probability threshold
+𝑒5 → 𝑒6 → 𝑒7 → 𝑒8 → 𝑒9
+𝐶2 → 𝐶3 → 𝐶2 → 𝐶2 → 𝐶1
+Event sequence
+Figure 2: Case study anomaly detection in smart factories.
+using the K-means algorithm on the numerical data values di for
+at least M iterations. The standard K-means algorithm iteratively
+assigns each event in the window to its closest cluster center (with
+respect to euclidean distance) and recalculates each cluster center
+as the centroid of all assigned events’ numerical data values (in the
+following we do not dierentiate between events and their data
+values). In the gure, there are ve events e5, e6, e7, e8, e9 in the
+event window that are clustered into three clustersC1,C2,C3. With
+this method, we can characterize each event according to its state,
+i.e., the cluster it is assigned to.
+Second, the operator trains a rst-order Markov model in order
+to dierentiate normal from abnormal event sequences. A Markov
+model is a state diagram, where a probability value is associated to
+each state transition. The probability of a state transition depends
+only on the current state and not on previous state transitions (in-
+dependence assumption). These probabilities are maintained in a
+transition matrix T using the following method: (i) The Markov
+model consists of K states, one state for each cluster. Each event
+is assumed to be in the state of the cluster it is assigned to. (ii)
+The events are ordered with respect to their time stamp – from
+oldest to youngest. Subsequent events are viewed as state transi-
+tions. In Figure 2, the events can be sorted as [e5, e6, e7, e8, e9]. The
+respective state transitions are C2 → C3 → C2 → C2 → C1. (iii)
+The transition matrix contains the probabilities of state transitions
+between any two states, i.e., cluster centers. The probability of two
+subsequent events being in cluster Ci and transition into cluster
+Cj for all i, j ∈ {1, ...,K} is the relative number of these observa-
+tions. For example the probability of transition from state C2 to
+state C1 is the number of events in state C2 that transition to state
+C1 divided by the total number of transitions from state C2, i.e.,
+P(C1 |C2) = #C2→C1#C2→? = 1/3.
+Third, an anomaly is dened using the probability of a sequence of
+observed transitions with lengthN . In particular, if a series of unlikely
+state transitions is observed, i.e., the total sequence probability is
+below the threshold Θ, an event is generated that indicates whether
+an anomaly has been found. The probability of the sequence can be
+calculated by breaking the sequence into single state transitions, i.e.,
+in Figure 2, P(C2 → C3 → C2 → C2 → C1) = P(C2 → C3)P(C3 →
+C2)P(C2 → C2)P(C2 → C1). Using the independence assumption of
+Markov models, we can assign a probability value to each sequence
+of state transition and hence quantify the likelihood.
+DEBS ’17, June 19-23, 2017, Barcelona, Spain Mayer et al.
+4.2 Formulating the Problem in the
+StreamLearner API
+The scenario ts nicely into the StreamLearner API: for each sen-
+sor, an independent ML model is subject to incremental training
+and inference steps. Therefore, each thread in the StreamLearner
+API is responsible for all observations of a single sensor enabling
+StreamLearner to monitor multiple sensors in parallel.
+4.2.1 Splier. The splitter receives an event ei = (pi ,di , s, ti )
+and assigns the event exclusively to the thread that is responsible for
+sensor s (or initiates creation of this responsible thread if it does not
+exist yet). It uses a simple hash map assigning sensor ids to thread
+ids to provide thread resolution with constant time complexity
+during processing of the input event stream. With this method,
+we break the input stream into multiple independent sensor event
+streams (one stream per sensor).
+4.2.2 Shapers. Shapers ω1 and ω2 are simply identity operators
+that pass the event without changes to the respective training or
+prediction modules.
+4.2.3 Trainer. The trainer maintains and updates the model in
+an incremental fashion. The model is dened via the transition ma-
+trixT that is calculated using K-means clustering and the respective
+state transition sequence.
+Incremental K-Means. The goal is to iteratively assign each event
+to the closest cluster center and recalculate the cluster center as
+the centroid of all assigned events. The standard approach is to
+perform M iterations of the K-means clustering algorithm for all
+events in the event window when triggered by the arrival of a new
+event. However, this method results in suboptimal runtime due to
+unnecessary computations that arise in practical settings:
+• A single new event in the event window will rarely have
+a global impact to the clustering. In particular, most as-
+signments of events to clusters remain unchanged after
+adding a new event to the event window. Therefore, the
+brute-force method of full reclustering can result in huge
+computational redundancies.
+• Performing M iterations is unnecessary, if the clustering
+has already converged in an earlier iteration M ′ < M .
+Clearly, we should terminate the algorithm as fast as pos-
+sible.
+• The one-dimensional K-means problem is fundamentally
+easier than the standard NP-hard K-means problem: an op-
+timal solution can be calculated in polynomial time O(n2K)
+for xed number of clusters K and number of events in
+the window n [13, 20]. Therefore, using a general-purpose
+K-means algorithm that supports arbitrary dimensionality
+can result in unnecessary overhead (the trade-o between
+generality, performance, and optimality).
+This is illustrated in Figure 3. There are four clusters C1, ...,C4
+and events e5, ..., e9 in the event window. A new event e10 is arriving.
+Instead of recomputation of the whole clustering in each iteration,
+i.e., calculating the distance between each event and cluster center,
+we touch only events that are potentially aected by a change of
+the cluster centers. For example, event e10 is assigned to cluster C4
+which leads to a new cluster center C ′4. However, the next closest
+𝑒9 𝑒8 𝑒7 𝑒6 𝑒10
+𝐶1 𝐶2 𝐶3
+𝑒5
+𝐶4
+New event 𝑒10 →
+New cluster center 𝐶4′
+𝐶4′
+𝐶3 unchanged →
+𝐶2 unchanged →
+𝐶1 unchanged 
+Figure 3: Saving computation time in K-Means.
+event e6 (left side) keeps the same cluster center C3. Our basic
+reasoning is that each event on the left side of the unchanged event
+e6 keeps its cluster center as there can be no disturbance in the
+form of changed cluster centers left-hand of e6 (only a cascading
+cluster center shift is possible as C4 ≥ C3 ≥ C2 ≥ C1 in any phase
+of the algorithm). A similar argumentation can be made for the
+right side and also for the removal of events from the window.
+This idea heavily utilizes the possibility of sorting cluster cen-
+ters and events in the one-dimensional space. It reduces average
+runtime of a single iteration of K-means as in many cases only
+a small subset of events has to be accessed. Combined with the
+optimization of skipping further computation after convergence
+in iteration M ′ < M , incremental updates of the clustering can
+be much more ecient than naive reclustering. The incremental
+one-dimensional clustering method is in the same complexity class
+as naive reclustering as in the worst case, we have to reassign all
+events to new clusters (the sorting of events takes only logarithmic
+runtime complexity in the event window size per insertion of a
+new event – hence the complexity is dominated by the K-means
+computation).
+Markov Model. The Markov model is dened by the state transi-
+tion matrix T . Cell (i, j) in the transition matrix T is the probability
+of two subsequent events to transition from cluster Ci (the rst
+event) to cluster Cj (the second event). Semantically, we count the
+number of state transitions in the event window to determine the
+relative frequency such that the row values inT sum to one. Instead
+of complete recomputation of the whole matrix, we only recalculate
+the rows and columns of clusters that were subject to any change
+in the K-means incremental clustering method. This ensures that
+all state transitions are reected in the model while saving compu-
+tational overhead. A reference to the new model T is handed to the
+predictor method that performs inference on the updated model as
+presented in the following.
+4.2.4 Predictor. The predictor module applies the inference step
+on the changed model for each incoming event. In this scenario,
+inference is done via the Markov model (i.e., the transition matrix
+T ) to determine whether an anomaly was detected or not. We use
+the transition matrix to assign a probability value to a sequence of
+events with associated states (i.e., cluster centers). The brute-force
+method would calculate the product of state transition probabilities
+for each sequence of length N and compare it with the probability
+threshold Θ. However, this leads to many redundant computations
+for subsequent events.
+We present an improved incremental method in Figure 4. The
+event window consists of events e1, ..., e8 sorted by time stamps.
+Grand Challenge: StreamLearner – Distributed Incremental
+Machine Learning on Event Streams DEBS ’17, June 19-23, 2017, Barcelona, Spain
+𝑒1 𝑒2 𝑒3 𝑒4 𝑒5 𝑒6 𝑒7 𝑒8
+𝑊 time units
+𝐶1 𝐶1 𝐶2 𝐶2 𝐶2 𝐶2 𝐶1 𝐶2
+𝑇 =
+1/3 2/3
+1/4 3/4
+𝑁 = 3
+Event window
+Clusters
+Markov model
+Anomalie
+detection
+Π =
+1
+3
+∗
+2
+3
+∗
+3
+4
+> θ
+θ = 0.1
+Threshold
+Π′ =
+Π
+1/3
+∗
+3
+4
+> θ
+Π′′ =
+Π′
+2/3
+∗
+3
+4
+> θ
+…
+No. Transitions
+Figure 4: anomaly detection.
+Each event is assigned to a cluster C1 or C2 resulting in a series
+of state transitions. We use the transition matrix of the Markov
+model to determine the probability of each state transition. We
+calculate the probability of the state transition sequence as the
+product of all state transitions (the state independence property of
+Markov models). For instance the probability Π of the rst three
+state transitions is Π = P(C1 |C1) ∗ P(C2 |C1) ∗ P(C2 |C2) = 1/3 ∗
+2/3 ∗ 3/4 = 1/4 which is larger than the threshold Θ = 0.1. Now
+we can easily calculate the probability of the next state transition
+sequence of length N by dividing by the rst transition probability
+of the sequence (i.e., P(C1 |C1) = 1/3) and multiplying with the
+probability of the new state transition (i.e., P(C2 |C2) = 3/4). Hence,
+the total probability Π′ of the next state transition sequence is
+Π′ = Π1/3 ∗ 3/4 = 9/16 > Θ. This method reduces the number of
+multiplications to N + 2(W −N ) rather than N (W −N ). Finally, the
+predictor issues an anomaly detection event to the merger (Yes/No).
+4.2.5 Merger. The merger sorts all anomalies events w.r.t. time
+stamp to ensure a consistent output event stream using the same
+procedure as in GraphCEP [17]. This method ensures a monotonic
+increase of event time stamps in the output event stream.
+5 EVALUATIONS
+In this section, we present our experiments with StreamLearner on
+the DEBS Grand Challenge 2017 data set with 50,000 sensor data
+events.
+Experimental Setup: We used the following two computing
+environments. (i) A notebook with 4×3.5 GHz (8 threads, Intel Core
+i7-4710MQ), 8 GB RAM (L1 Cache 256 KB, L2 Cache 1024 KB, L3
+Cache 6144 KB), and 64 Bit support. (ii) An in-house shared memory
+infrastructure with 32 × 2.3 GHz (Quad-Core AMD Opteron(tm)
+Processor 8356), and 280 GB RAM (L1d cache 64 KB, L1i cache 64
+KB, L2 cache 512 KB, L3 cache 2048 KB), and 64 Bit support.
+Adapting the window sizeW : In Figure 5a, we show the abso-
+lute throughput of StreamLearner on the y-axis and dierent win-
+dow sizesW on the x-axis using the notebook for a dierent number
+of threads. Clearly, larger window size leads to lower throughput
+as computational overhead grows. We normalized this data in Fig-
+ure 5c to the interval [0, 100] to compare the relative throughput
+improvements for the dierent number of threads. Clearly, the ben-
+et of multi-threading arises only for larger window sizes due to
+the constant distribution overhead that can not be compensated by
+increased parallelism because each thread has only little computa-
+tional tasks between points of synchronization (on the splitter and
+on the merger). Overall scalability is measured in Figure 5a. It can
+be seen that StreamLearner scales best for data-parallel problems
+with relatively little synchronization overhead in comparison to the
+computational task. For small window sizes (e.g.W = 10), through-
+put does not increase with increasing number of workers. However,
+for moderate to large window sizes, scaling the number of worker
+threads has an increasing impact on the relative throughput: scaling
+from one to nine threads increases throughput by 2.5×.
+In Figure 6a, we repeated the experiment on the shared-memory
+infrastructure. The rst observation is that the single threaded
+experiments are four times slower compared to the notebook infras-
+tructure due to the older hardware. Nevertheless, in Figure 6b, we
+can see clearly that the relative throughput decreases when using
+a low rather than a high number of threads (e.g. for larger window
+sizesW > 100). In Figure 6c, we measure scalability improvements
+of up to 60%. Nevertheless, it can be also seen that it is not always
+optimal to use a high number of threads – even if the problem is
+highly parallelizable.
+Adapting the number of clusters K : In Figure 7, we plot the
+absolute throughput for a varying number of clusters and dierent
+threads. We xed the window size toW = 100. Not surprisingly, an
+increasing number of clusters leads to reduced throughput due to
+the increased computational complexity of the clustering problem.
+Evidently, increasing the number of threads increases the through-
+put up to a certain point. This is consistent with the ndings above.
+6 CONCLUSION
+StreamLearner is a distributed CEP system and API tailored to
+scalable event detection using Machine Learning on streaming data.
+Although our API is general-purpose, StreamLearner is especially
+well-suited to data-parallel problems – with multiple event sources
+causing diverse patterns in the event streams. For these scenarios,
+StreamLearner can enrich standard CEP systems with powerful
+Machine Learning functionality while scaling exceptionally well
+due to the pipelined incremental training and inference steps on
+independent models.
+REFERENCES
+[1] Darko Anicic, Paul Fodor, Sebastian Rudolph, and Nenad Stojanovic. 2011. EP-
+SPARQL: A Unied Language for Event Processing and Stream Reasoning. In
+Proceedings of the 20th International Conference on World Wide Web (WWW
+’11). ACM, New York, NY, USA, 635–644. DOI:https://doi.org/10.1145/1963405.
+1963495
+[2] Arvind Arasu, Shivnath Babu, and Jennifer Widom. 2006. The CQL Continuous
+Query Language: Semantic Foundations and Query Execution. The VLDB Journal
+15, 2 (June 2006), 121–142. DOI:https://doi.org/10.1007/s00778-004-0147-z
+[3] Michael Batty. 2013. Big data, smart cities and city planning. Dialogues in Human
+Geography 3, 3 (2013), 274–279.
+[4] Paris Carbone, Asterios Katsifodimos, Stephan Ewen, Volker Markl, Seif Haridi,
+and Kostas Tzoumas. 2015. Apache ink: Stream and batch processing in a
+single engine. Bulletin of the IEEE Computer Society Technical Committee on Data
+Engineering 36, 4 (2015).
+[5] Gert Cauwenberghs and Tomaso Poggio. 2001. Incremental and decremental
+support vector machine learning. In Advances in neural information processing
+systems. 409–415.
+[6] Gianpaolo Cugola and Alessandro Margara. 2010. TESLA: A Formally Dened
+Event Specication Language. In Proceedings of the Fourth ACM International
+Conference on Distributed Event-Based Systems (DEBS ’10). ACM, New York, NY,
+USA, 50–61. DOI:https://doi.org/10.1145/1827418.1827427
+DEBS ’17, June 19-23, 2017, Barcelona, Spain Mayer et al.
+0 100 200 300 400 500
+Window Size (sec)
+100
+200
+300
+400
+500
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(e
+ve
+n
+ts
+/s
+e
+c) 1 Thread
+2 Threads
+3 Threads
+5 Threads
+9 Threads
+(a) Absolute Throughput.
+0 100 200 300 400 500
+Window Size (sec)
+0
+20
+40
+60
+80
+100
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(%
+)
+1 Thread
+2 Threads
+3 Threads
+5 Threads
+9 Threads
+(b) Normalized Throughput.
+10 100 500
+Window Size (sec)
+0
+20
+40
+60
+80
+100
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(%
+)
+1 Thread
+2 Threads
+3 Threads
+5 Threads
+9 Threads
+(c) Scalability.
+Figure 5: Throughput evaluations for dierent window sizesW on notebook.
+0 50 100 150 200 250
+Window Size (sec)
+20
+30
+40
+50
+60
+70
+80
+90
+100
+110
+120
+130
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(e
+ve
+n
+ts
+/s
+e
+c) 1 Thread
+2 Threads
+4 Threads
+8 Threads
+16 Threads
+32 Threads
+(a) Absolute Throughput.
+0 50 100 150 200 250
+Window Size (sec)
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(%
+)
+1 Thread
+2 Threads
+4 Threads
+8 Threads
+16 Threads
+32 Threads
+(b) Normalized Throughput.
+10 100 250
+Window Size (sec)
+0
+20
+40
+60
+80
+100
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(%
+)
+1 Thread
+2 Threads
+4 Threads
+8 Threads
+16 Threads
+32 Threads
+(c) Scalability.
+Figure 6: Throughput evaluations for dierent window sizes on shared memory infrastructure.
+10 20 30 40 50 60 70 80 90 100
+Number of Clusters (K)
+0
+100
+200
+300
+400
+500
+600
+T
+h
+ro
+u
+g
+h
+p
+u
+t 
+(e
+ve
+n
+t/
+se
+c) 1 Thread
+2 Threads
+3 Threads
+5 Threads
+9 Threads
+Figure 7: Throughput for varying number of clusters K .
+[7] Gianpaolo Cugola and Alessandro Margara. 2012. Processing ows of informa-
+tion: From data stream to complex event processing. ACM Computing Surveys
+(CSUR) 44, 3 (2012), 15.
+[8] Jerey Dean and Sanjay Ghemawat. 2008. MapReduce: Simplied Data Pro-
+cessing on Large Clusters. Commun. ACM 51, 1 (Jan. 2008), 107–113. DOI:
+https://doi.org/10.1145/1327452.1327492
+[9] Shen Furao, Tomotaka Ogura, and Osamu Hasegawa. 2007. An enhanced self-
+organizing incremental neural network for online unsupervised learning. Neural
+Networks 20, 8 (2007), 893–903.
+[10] Vincenzo Gulisano, Zbigniew Jerzak, Roman Katerinenko, Martin Strohbach,
+and Holger Ziekow. 2017. The DEBS 2017 grand challenge. In Proceedings of the
+11th ACM International Conference on Distributed and Event-based Systems, DEBS
+’17, Barcelona, Spain, June 19 - 23, 2017.
+[11] Jay Kreps, Neha Narkhede, Jun Rao, and others. 2011. Kafka: A distributed
+messaging system for log processing. In Proceedings of the NetDB. 1–7.
+[12] Narayanan C Krishnan and Diane J Cook. 2014. Activity recognition on streaming
+sensor data. Pervasive and mobile computing 10 (2014), 138–154.
+[13] Meena Mahajan, Prajakta Nimbhorkar, and Kasturi Varadarajan. 2009. The
+planar k-means problem is NP-hard. In International Workshop on Algorithms
+and Computation. Springer, 274–285.
+[14] Grzegorz Malewicz, Matthew H Austern, Aart JC Bik, James C Dehnert, Ilan
+Horn, Naty Leiser, and Grzegorz Czajkowski. 2010. Pregel: a system for large-
+scale graph processing. In Proceedings of the 2010 ACM SIGMOD International
+Conference on Management of data. ACM, 135–146.
+[15] Christian Mayer, Muhammad Adnan Tariq, Chen Li, and Kurt Rothermel. 2016.
+GrapH: Heterogeneity-Aware Graph Computation with Adaptive Partitioning.
+In Proc. of IEEE ICDCS.
+[16] Ruben Mayer, Boris Koldehofe, and Kurt Rothermel. 2015. Predictable Low-
+Latency Event Detection with Parallel Complex Event Processing. Internet of
+Things Journal, IEEE 2, 4 (Aug 2015), 274–286.
+[17] Ruben Mayer, Christian Mayer, Muhammad Adnan Tariq, and Kurt Rothermel.
+2016. GraphCEP: Real-time Data Analytics Using Parallel Complex Event and
+Graph Processing. In Proceedings of the 10th ACM International Conference on
+Distributed and Event-based Systems (DEBS ’16). ACM, New York, NY, USA, 309–
+316. DOI:https://doi.org/10.1145/2933267.2933509
+[18] Ruben Mayer, Muhammad Adnan Tariq, and Kurt Rothermel. 2017. Minimizing
+Communication Overhead in Window-Based Parallel Complex Event Processing.
+In Proceedings of the 11th ACM International Conference on Distributed and Event-
+based Systems (DEBS ’17). ACM, New York, NY, USA, 12. DOI:https://doi.org/10.
+1145/3093742.3093914
+[19] Ankit Toshniwal, Siddarth Taneja, Amit Shukla, Karthik Ramasamy, Jignesh M
+Patel, Sanjeev Kulkarni, Jason Jackson, Krishna Gade, Maosong Fu, Jake Donham,
+and others. 2014. Storm@ twitter. In Proceedings of the 2014 ACM SIGMOD
+international conference on Management of data. ACM, 147–156.
+[20] Haizhou Wang and Mingzhou Song. 2011. Ckmeans. 1d. dp: optimal k-means
+clustering in one dimension by dynamic programming. The R journal 3, 2 (2011),
+29.
+[21] Robert C Wilson, Matthew R Nassar, and Joshua I Gold. 2010. Bayesian online
+learning of the hazard rate in change-point problems. Neural computation 22, 9
+(2010), 2452–2476.
+[22] Matei Zaharia, Tathagata Das, Haoyuan Li, Timothy Hunter, Scott Shenker, and
+Ion Stoica. 2013. Discretized streams: Fault-tolerant streaming computation at
+scale. In Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems
+Principles. ACM, 423–438.
+

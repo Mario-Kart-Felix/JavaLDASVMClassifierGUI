@@ -1,0 +1,2188 @@
+An Efficient Probabilistic Approach
+for Graph Similarity Search
+Extended Technical Report
+Zijian Li† Xun Jian‡ Xiang Lian∗ Lei Chen#
+†‡#Department of Computer Science and Engineering, HKUST, Hong Kong, China
+∗Department of Computer Science, Kent State University, Kent, USA
+{†zlicb, ‡xjian, #leichen}@cse.ust.hk ∗xlian@kent.edu
+ABSTRACT
+Graph similarity search is a common and fundamental op-
+eration in graph databases. One of the most popular graph
+similarity measures is the Graph Edit Distance (GED) mainly
+because of its broad applicability and high interpretability.
+Despite its prevalence, exact GED computation is proved
+to be NP-hard, which could result in unsatisfactory com-
+putational efficiency on large graphs. However, exactly ac-
+curate search results are usually unnecessary for real-world
+applications especially when the responsiveness is far more
+important than the accuracy. Thus, in this paper, we pro-
+pose a novel probabilistic approach to efficiently estimate
+GED, which is further leveraged for the graph similarity
+search. Specifically, we first take branches as elementary
+structures in graphs, and introduce a novel graph similarity
+measure by comparing branches between graphs, i.e., Graph
+Branch Distance (GBD), which can be efficiently calculated
+in polynomial time. Then, we formulate the relationship
+between GED and GBD by considering branch variations
+as the result ascribed to graph edit operations, and model
+this process by probabilistic approaches. By applying our
+model, the GED between any two graphs can be efficiently
+estimated by their GBD, and these estimations are finally
+utilized in the graph similarity search. Extensive experi-
+ments show that our approach has better accuracy, efficiency
+and scalability than other comparable methods in the graph
+similarity search over real and synthetic data sets.
+1. INTRODUCTION
+Graph similarity search is a common and fundamental
+operation in graph databases, which has widespread ap-
+plications in various fields including bio-informatics, soci-
+ology, and chemical analysis, over the past few decades. For
+evaluating the similarity between graphs, Graph Edit Dis-
+tance (GED) [1] is one of the most prevalent measures be-
+cause of its wide applicability, that is, GED is capable of
+dealing with various kinds of graphs including directed and
+This work is licensed under the Creative Commons Attribution-
+NonCommercial-NoDerivatives 4.0 International License. To view a copy
+of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/. For
+any use beyond those covered by this license, obtain permission by emailing
+info@vldb.org.
+Proceedings of the VLDB Endowment, Vol. 10, No. 6
+Copyright 2017 VLDB Endowment 2150-8097/17/02.
+undirected graphs, labeled and unlabeled graphs, as well as
+simple graphs and multi-graphs (which could have multiple
+edges between two vertices). Furthermore, GED has high
+interpretability, since it corresponds to some sequences of
+concrete graph edit operations (including insertion of ver-
+tices and edges, etc.) of minimal lengths, rather than im-
+plicit graph embedding utilized in spectral [2] or kernel [3]
+measures. Example 1 illustrates the basic idea of GED.
+Example 1. Assume that we have two graphs G1 and G2
+as shown in Figure 1. The label sets of their vertices and
+edges are {A,B,C} and {x, y, z}, respectively. The Graph
+Edit Distance (GED) between G1 and G2 is the minimal
+number of graph edit operations to transform G1 into G2. It
+can be proved that the GED between G1 and G2 is 3, which
+can be achieved by 1© deleting the edge between v1 and v3 in
+G1, and 2© inserting an isolated vertex v4 with label A, and
+3© inserting an edge between v3 and v4 with label x.
+With GED as the graph similarity measure, the graph
+similarity search problem is formally stated as follows.
+Problem Statement: (Graph Similarity Search) Given
+a graph database D, a query graph Q, and a similarity
+threshold τ̂ , the graph similarity search is to find a set of
+graphs D0 ⊆ D, where the graph edit distance (GED) be-
+tween Q and each graph in D0 is less than or equal to τ̂ .
+A straightforward solution to the problem above is to
+check exact GEDs for all pairs of Q and graphs in database
+D. However, despite its prevalence, GED is proved to be
+NP-hard for exact calculations [4], which may lead to unsat-
+isfactory computational efficiency when we conduct a sim-
+ilarity search over large graphs. The most widely-applied
+approach for computing exact GED is the A∗ algorithm [5],
+which aims to search out the optimal matching between the
+vertices of two graphs in a heuristic manner. Specifically,
+given two graphs with n and m vertices, respectively, the
+time complexity of A∗ algorithm is O(nm) in the worst case.
+Previous works on improving the straightforward solution
+mainly follow the filter-and-verification framework [4] [6] [7]
+[8], which first filters out undesirable graphs from graph
+database D by utilizing lower and upper bounds of GED,
+and then only calculates the GED between query graph Q
+and each of those remaining candidates. Although these ap-
+proaches can greatly accelerate the similarity search when
+the bounds are tight enough to filter out most graphs, the
+exact GEDs between the query graph and all candidate
+graphs still need to be computed during the verification step.
+Therefore, the efficiency of filter-and-verification approaches
+is restricted by the sizes of graphs.
+ar
+X
+iv
+:1
+70
+6.
+05
+47
+6v
+1 
+ [
+cs
+.D
+B
+] 
+ 1
+7 
+Ju
+n 
+20
+17
+Av1
+Cv2 B v3
+y y
+z
+G1
+Av1
+Cv2 B v3
+y
+z
+×
+1© Deleting edge 〈v1, v3〉
+Av1
+Cv2 B v3
+A v4
+y
+z
+2© Inserting vertex v4
+Av1
+Cv2 B v3
+A v4
+y
+z
+x
+3© Inserting edge 〈v3, v4〉
+Bu1 A u2
+Au3 C u4
+x
+z
+y
+G2
+Figure 1: Graph edit process to transform G1 into G2 (Example 1)
+Due to the hardness of computing exact GED (NP-hard)
+[4], most existing works involving exact GED computation
+[4] [5] only conducted experiments on graphs with less than
+10 vertices. In addition, a recent study [9] indicates that
+the A∗ algorithm is incapable of computing GED between
+graphs with more than 12 vertices, which can hardly satisfy
+the demand for searching real-world graphs. For instance,
+a common requirement in bio-informatics is to search and
+compare molecular structures of similar proteins [10]. How-
+ever, the structures of human proteins usually contain hun-
+dreds of vertices (i.e., atoms) [11], which obviously makes
+similarity search beyond the capability of the approaches
+mentioned above. Another observation is that many real-
+world applications do not always require an exact similarity
+value, and an approximate one with some quality guarantee
+is also acceptable especially in real-time applications where
+the responsiveness is far more important than the accuracy.
+Taking the protein search as an example again, it is certainly
+more desirable for users to obtain an approximate solution
+within a second, rather than to wait for a couple of days to
+get the exact answer.
+To address the problems above, many approaches have
+already been proposed to achieve an approximate GED be-
+tween the query graph Q and each graph in database D in
+polynomial time [12], which can be leveraged to accelerate
+the graph similarity search by trading accuracy for efficiency.
+Assuming that there are two graphs with n and m vertices,
+respectively, where n ≥ m, one well-studied method [13] [14]
+for estimating the GED between these two graphs is to solve
+a corresponding linear sum assignment problem, which re-
+quires at least O(n3) time for obtaining the global optimal
+value or O(n2 logn2) time for a local optimal value by ap-
+plying the greedy algorithm [15]. An alternative method
+is spectral seriation [16], which first generates the vector
+representations of graphs by extracting their leading eigen-
+values of the adjacency matrix (O(n2) time) [17], and then
+exploits a probabilistic model based on these vectors to es-
+timate GED in O(nm2) time.
+To further enhance the efficiency of GED estimation and
+better satisfy the demands for graph similarity search on
+large graphs, we propose a novel probabilistic approach which
+aims at estimating the GED with less time cost (O(nd+τ̂3)),
+where n is the number of vertices, d is the average degree of
+the graphs involved, and τ̂ is the similarity threshold in the
+stated graph similarity search problem. Note that the simi-
+larity threshold τ̂ is often set as a small value (i.e., τ̂ ≤ 10)
+and does not increase with the number of vertices n in pre-
+vious studies [4] [8], thus, we can assume that τ̂ is a constant
+with regard to n when the graph is sufficiently large. More-
+over, most real-world graphs studied in related works [14]
+[15] are scale-free graphs [18], such as virus molecular, pro-
+tein and antivirus compound structures, and we prove that
+the average degree d = O(logn) for scale-free graphs. There-
+fore, under the assumptions above, the time complexity of
+our approach is O(n logn + n) = O(n logn) for compar-
+ing one graph with the query graph, and O(|D|n logn) for
+searching similar graphs in the graph database D, where |D|
+is the number of graphs in database D.
+To summarize, we have made the following contributions
+in this work.
+• We adopt branches [8] as elementary structures in graphs,
+and define a novel graph similarity measure by compar-
+ing branches between graphs, i.e., Graph Branch Distance
+(GBD), which can be efficiently calculated in O(nd) time.
+• We build a probabilistic model which reveals the rela-
+tionship between GED and GBD by considering branch
+variations as the result ascribed to graph edit operations.
+By applying our model, the GED between any two graphs
+can be estimated by their GBD in O(τ̂3) time.
+• We conduct extensive experiments to show that our ap-
+proach has better accuracy, efficiency and scalability com-
+pared with the related approximation methods over real
+and synthetic data sets.
+The paper is organized as follows. In Section 2, we for-
+mally define the symbols and concepts which are used in
+this paper. In Section 3, we give definitions of branches, the
+branch isomorphism, and Graph Branch Distance (GBD).
+In Section 4, we introduce the extended graphs, which are
+exploited to simplify our model. In Section 5, we derive
+the probabilistic relation between GBD and GED, which is
+leveraged in Section 6 to perform the graph similarity search.
+In Section 7, we demonstrate the efficiency and effectiveness
+of our proposed approaches through extensive experiments.
+We discuss several related studies in Section 8. Finally, we
+conclude the paper in Section 9.
+2. PRELIMINARIES
+The graphs discussed in this paper are restricted to sim-
+ple labeled undirected graphs. Specifically, the i-th graph in
+database D is denoted by: Gi , {Vi, Ei,L}, where Vi ,
+{vi,1, vi,2, ..., vi,|Vi|} is the set of vertices, Ei , {ei,1, ei,2, ...,
+ei,|Ei|} is the set of edges, while L is a general labelling
+function. For any vertex vi,j ∈ Vi, its label is given by
+L(vi,j). Similarly, for any edge ei,j ∈ Ei, its label is given
+by L(ei,j). In addition, LV and LE are defined as the sets
+of all possible labels for vertices and edges, respectively. We
+also define ε as a virtual label, which will be used later in
+our approach. When the label of a vertex (or edge) is ε, the
+vertex (or edge) is said to be virtual and does not actually
+exist. Particularly, we have ε /∈ LV and ε /∈ LE .
+In this paper, we take Graph Edit Distance (GED) [1] as
+the graph similarity measure, which is defined as follows.
+Definition 1 (Graph Edit Distance). The edit dis-
+tance between graphs G1 and G2, denoted by GED(G1, G2),
+is the minimal number of graph edit operations which are
+necessary to transform G1 into G2, where the graph edit op-
+erations (GEO) are restricted to the following six types:
+• AV: Add one isolated labeled vertex;
+• DV: Delete one isolated vertex;
+• RV: Relabel one vertex;
+• AE: Add one labeled edge;
+• DE: Delete one edge;
+• RE: Relabel one edge.
+Table 1: Table of Notations
+D , {G1, G2, ...G|D|}, the graph database
+Gi , {Vi, Ei,L}, i-th graph in database
+Vi , {vi,1, vi,2, ..., vi,|Vi|}, the vertices in Gi
+Ei , {ei,1, ei,2, ..., ei,|Ei|}, the edges in Gi
+Q , {VQ, EQ,L}, the query graph
+L , labelling function for vertices and edges
+LV , the set of all possible vertex labels
+LE , the set of all possible edge labels
+ε , the virtual label
+τ̂ , the similarity threshold
+seq , a graph edit operation (GEO) sequence
+SEQ , set of all GEO sequences of minimal lengths
+GED , Graph Edit Distance
+B(v) , the branch rooted at vertex v
+L(v) , the label of vertex v
+N(v) , sorted multiset of labels of edges adjacent to v
+BGi , sorted multiset of all branches in graph Gi
+GBD , Graph Branch Distance
+G{k} , extended graph of G with extension factor k
+G′1, G
+′
+2 , G
+{|V2|−|V1|}
+1 , G
+{0}
+2 when |V1| ≤ |V2|
+Assume that a particular graph edit operation sequence
+which transforms graph G1 into G2 is seqi, where i is the
+unique ID of this sequence. Then, according to Definition 1,
+GED(G1, G2) is the minimal length for all possible opera-
+tion sequences, that is, GED(G1, G2) = mini{|seqi|}, where
+|seqi| is the length of the sequence seqi. The set of all op-
+eration sequences from G1 to G2 of the minimal length is
+defined as SEQ = {seqi|∀i, GED(G1, G2) = |seqi|}.
+3. BRANCH DISTANCE BETWEEN GRAPHS
+To reduce the high cost of exact GED computations (NP-
+hard [4]) in the graph similarity search, one widely-applied
+strategy for pruning search results [4] [6] [7] [8] is to exploit
+the differences between graph sub-structures as the bounds
+of exact GED values. In this paper, we consider the branches
+[8] as elementary graph units, which are defined as:
+Definition 2 (Branches). The branch rooted at ver-
+tex v is defined as B(v) = {L(v), N(v)}, where L(v) is the
+label of vertex v, and N(v) is the sorted multiset containing
+all labels of edges adjacent to v. The sorted mutiset of all
+branches in Gi is denoted by BGi = {B(vi,j), ∀vi,j ∈ Vi}.
+In practice, each branch B(v) is stored as a list of strings
+whose first element is L(v) and the following elements are
+strings in the sorted multiset N(v). In addition, BGi for
+each graph Gi is stored in a sorted multiset, whose elements
+are essentially lists of strings (i.e., branches) and are al-
+ways sorted ascendingly by the ordering algorithm in [19].
+For a fair comparison of the computational efficiency, we as-
+sume that all accessory data structures in different methods,
+such as the cost matrix [14], adjacency matrix [16], and our
+branches, are pre-computed and stored with graphs.
+Example 2. For G1 in Figure 1, the branch rooted at
+each vertex in G1 are B(v1) = {A; y, y}, B(v2) = {C; y, z}
+and B(v3) = {B; y, z}, respectively.
+To define the equality between two branches, we introduce
+the concept of branch isomorphism as follows.
+Definition 3 (Branch Isomorphism). Two branches
+B(v) = {L(v), N(v)} and B(u) = {L(u), N(u)} are isomor-
+phic if and only if L(v) = L(u) and N(v) = N(u), which is
+denoted by B(v) ' B(u).
+Suppose that we have two branches B(v) and B(u) where
+the degrees of vertices v and u are dv and du, respectively.
+From previous discussions, the branch B(v) and B(u) are
+stored as lists of lengths dv + 1 and du + 1, respectively.
+Therefore, checking whether B(v) and B(u) are isomorphic
+is essentially judging whether two lists of lengths dv + 1 and
+du + 1 are identical, which can be done in O(1) time when
+dv 6= du and otherwise in O(dv) time. (Note that the length
+of a list can be obtained in O(1) time.)
+Finally, we define the Graph Branch Distance (GBD).
+Definition 4 (Graph Branch Distance). The branch
+distance between graphs G1 and G2, denoted by GBD(G1, G2),
+is defined as:
+GBD(G1, G2) = max{|BG1 |, |BG2 |} − |BG1 ∩BG2 |
+= max{|V1|, |V2|} − |BG1 ∩BG2 | (1)
+where BG1 and BG2 are the multisets of all branches in
+graphs G1 and G2, respectively.
+Example 3 below illustrates the process of computing GBD.
+Example 3. Assume that we have two graphs G1 and G2
+as shown in Figure 1. The branches rooted at the vertices in
+G1 and G2 are as follows.
+B(v1) = {A; y, y}, B(v2) = {C; y, z}, B(v3) = {B; y, z};
+B(u1) = {B;x, z}, B(u2) = {A; y};
+B(u3) = {A;x}, B(u4) = {C; y, z}.
+The sorted multisets of branches in G1 and G2 are:
+BG1 = {B(v1), B(v3), B(v2)};
+BG2 = {B(u3), B(u2), B(u1), B(u4)}.
+Finally, by multiset intersection, we can see that |BG1 ∩
+BG2 | = 1. Since max{|V1|, |V2|} = 4, finally we have:
+GBD(G1, G2) = max{|V1|, |V2|} − |BG1 ∩BG2 | = 3.
+It has been proved that the number of elements that need
+to be compared, when intersecting two sorted multisets, is
+max{m1,m2} [4], where m1 and m2 are the sizes of two
+multisets, respectively. Therefore, the GBD between query
+graph Q and any graph G ∈ D can be computed in time:∑n
+i di = O(nd) (2)
+where n = max{|VQ|, |VG|}, di is the degree of i-th compared
+vertex in G, and d is the average degree of graph G.
+The GBD given by Definition 4 is utilized to model the
+graph edit process and further leveraged for estimating the
+graph edit distance (GED) in Section 5. The intuition be-
+hind our approach is as follows. The state-of-the-art method
+[8] for pruning graph similarity search results assumes that
+the difference between branches of two graphs has a close
+relation to their GED. Therefore, we aim to use GBD to
+closely estimate the GED of two graphs.
+4. EXTENDED GRAPHS
+Before constructing our probabilistic model for estimating
+graph edit distances (GED) by branch distances (GBD), in
+this section, we reduce the number of graph edit operation
+(GEO) types that need to be considered, which helps to
+simplify our model. We show that, for any pair of graphs,
+by extending both graphs with virtual vertices and edges, we
+only need to consider two types of operations when modeling
+the graph edit process. Meanwhile, the GED and the GBD
+between the extended graphs stay the same as the GED and
+the GBD between the original ones, respectively.
+The definition of extended graphs is as follows.
+Definition 5 (Extended Graphs). For graph G, its
+extended graph, denoted by G{k}, is generated by first insert-
+ing k isolated virtual vertices into G, and then inserting a
+virtual edge between each pair of non-adjacent vertices in G
+(including virtual vertices), where k is the extension factor.
+In particular, for any graph pair (G1, G2) where |V1| ≤
+|V2|, we define G′1 = G
+{|V2|−|V1|}
+1 and G
+′
+2 = G
+{0}
+2 by ex-
+tending G1 and G2 with extension factor |V2| − |V1| and 0,
+respectively. Previous studies [20] [21] have shown that, for
+any graph edit operation sequence seq which transforms the
+extended graph G′1 into G
+′
+2 and has the minimal length, ev-
+ery operation in seq is equivalent to a relabelling operation
+on G′1. Therefore, we only need to consider graph edit oper-
+ations of types RV and RE when modeling the graph edit
+process of transforming the extended graph G′1 into G
+′
+2.
+Finally, given the graphs G1 and G2 (for |V1| ≤ |V2|), and
+their extended graphs G′1and G
+′
+2, we have Theorems 1 and
+2, which are utilized in the following sections.
+Theorem 1. GED(G1, G2) = GED(G
+′
+1, G
+′
+2)
+Proof. Please refer to [20] [21].
+Theorem 2. GBD(G1, G2) = GBD(G
+′
+1, G
+′
+2)
+Proof. Let the sets of branches rooted at virtual vertices
+in G′1, G
+′
+2 be ∆BG1 and ∆BG2 , respectively. We have:
+|BG′1 ∩BG′2 | = |BG1 ∩BG2 |+ |∆BG1 ∩BG2 |
++ |BG1 ∩∆BG2 |+ |∆BG1 ∩∆BG2 |
+Since branches rooted at virtual vertices are not isomor-
+phic to any other branches, we also have:
+|∆BG1 ∩BG2 | = |BG1 ∩∆BG2 | = |∆BG1 ∩∆BG2 | = 0
+Therefore, |BG′1 ∩BG′2 | = |BG1 ∩BG2 |.
+From the definitions of branches and extended graphs, and
+|V1| ≤ |V2|, we have:
+max{|V1|, |V2|} = max{|V ′1 |, |V ′2 |}
+From the definition of GBD, we can obtain:
+GBD(G1, G2) = max{|V1|, |V2|} − |BG1 ∩BG2 |
+= max{|V ′1 |, |V ′2 |} − |BG′1 ∩BG′2 | = GBD(G
+′
+1, G
+′
+2)
+That is, GBD(G1, G2) = GBD(G
+′
+1, G
+′
+2).
+Note that the extended graph is only a conceptual model
+for reducing the number of graph edit operation types that
+need to be considered. In practice, we do not actually
+convert graphs into their extended versions, and there is
+no overhead for creating and maintaining extended graphs.
+Moreover, according to Theorems 1 and 2, whenever the val-
+ues of GED(G′1, G
+′
+2) and GBD(G
+′
+1, G
+′
+2) are required, we can
+instead calculate GED(G1, G2) and GBD(G1, G2). That is,
+the calculations of GED and GBD are still conducted on
+original graphs rather than the extended ones in practice.
+5. A PROBABILISTIC MODEL
+In this section, we aim to solve the stated graph simi-
+larity search problem by estimating GED from GBD in a
+probabilistic manner. To be more specific, assuming that
+we have two graphs G1 and G2 (for |V1| ≤ |V2|), given
+GBD(G1, G2) = ϕ, the probability that GED(G1, G2) ≤ τ̂
+holds can be calculated as follows.
+Pr[GED(G1, G2) ≤ τ̂ | GBD(G1, G2) = ϕ]
+=
+∑τ̂
+τ=0 Pr[GED(G1, G2) = τ | GBD(G1, G2) = ϕ]
+=
+∑τ̂
+τ=0 Pr[GED(G
+′
+1, G
+′
+2) = τ | GBD(G′1, G′2) = ϕ] (3)
+which can be proved by Theorems 1 and 2.
+For simplicity, in this section, we denote GED(G′1, G
+′
+2)
+and GBD(G′1, G
+′
+2) by GED and GBD respectively. By ap-
+plying Bayes’ Rule, we have
+Pr[GED = τ | GBD = ϕ]
+=Λ1(G
+′
+1, G
+′
+2; τ, ϕ) · Λ2(G′1, G′2; τ, ϕ) (4)
+where
+Λ1(G
+′
+1, G
+′
+2; τ, ϕ) = Pr[GBD = ϕ | GED = τ ] (5)
+Λ2(G
+′
+1, G
+′
+2; τ, ϕ) =
+Pr[GED = τ ]
+Pr[GBD = ϕ]
+(6)
+Therefore, the problem to estimate GED by GBD be-
+comes calculating Λ1 and Λ2, whose values are obtained in
+the following two subsections.
+5.1 Calculating Λ1(G′1,G′2; τ, ϕ)
+To compute Λ1(G
+′
+1, G
+′
+2; τ, ϕ), in this subsection, we model
+the procedure of a specific graph edit operation sequence as
+a relabelling process whose result is some modifications on
+branches, which is measured by branch distances between
+graphs (GBD). Based-on our model, we prove Theorem 3,
+which gives the closed form of calculating Λ1(G
+′
+1, G
+′
+2; τ, ϕ).
+Specifically, we build our model by five steps as follows.
+Step 1: We first considerGED as a random variable, whose
+value is given when calculating Λ1(G
+′
+1, G
+′
+2; τ, ϕ).
+Step 2: We randomly choose one graph edit operation (GEO)
+sequence from SEQ (i.e., the set of all possible GEO se-
+quences with the minimal length). We define this particular
+choice as the random variable S, whose value is the ID of the
+chosen operation sequence. Note that observing GED = 3
+is equivalent to giving SEQ where every seq ∈ SEQ satisfies
+that |seq| = 3, so S is dependent on GED.
+Definition 6. S(ω) is the random variable where ω is
+a particular choice of operation sequence from SEQ, and
+S(ω) = s iff ω choose the sequence with ID s, that is, seqs.
+Step 3: We model the numbers of RV and RE operations
+in the sequence chosen in Step 2 as random variables X and
+Y , respectively.
+Definition 7. X(s) is the random variable where s is a
+particular value of S, and X(s) = x iff S(ω) = s and the
+number of operations with type RV in seqs is x.
+Definition 8. Y (s) is the random variable where s is a
+particular value of S, and Y (s) = y iff S(ω) = s and the
+number of operations with type RE in seqs is y. Note when
+given GED = τ and X = x, we always have Y = τ − x.
+Step 4: We define random variables Z as the number of
+vertices covered by relabelled edges, and R as the number
+of vertices either relabelled or covered by relabelled edges,
+after conducting operations in the sequence chosen in Step 2.
+Definition 9. Z(y) is the random variable where y is
+a particular value of Y , and Z(y) = m iff Y (s) = y and
+the number of vertices covered by relabeled edges is m when
+conducting seqs.
+GED S
+X
+Y Z
+R GBD
+Figure 2: Bayesian Network of Random Variables
+Definition 10. R(x,m) is the random variable where x
+and m are particular values of X and Z, respectively. That
+is, R(x,m) = r iff X = x, Z = m and the number of vertices
+either relabelled or covered by relabelled edges is r.
+The reason we conduct Step 4 is because we want to model
+branch variations by the number of relabelled branches, i.e.,
+branches rooted at the vertices either relabelled or covered
+by relabelled edges.
+Step 5: We consider GBD as the random variable depen-
+dent on R, where their relation is given in Lemma 3. (Please
+refer to Appendix D for Lemma 3.)
+Based on the definitions of the random variables above,
+the relations among the random variables are represented by
+a Bayesian Network, as shown in Figure 2. Note that GED
+is an observed variable when calculating Λ1(G
+′
+1, G
+′
+2; τ, ϕ) in
+this subsection. We give Example 4 below to better illus-
+trate the key idea of our probabilistic model.
+Example 4. Given two extended graphs G′1 and G
+′
+2, as
+shown in Figure 3, where the virtual edges are represented by
+dashed lines. The minimal number of graph edit operations
+to transform G′1 into G
+′
+2 is 2, and the set of all possible graph
+edit operation sequences with the minimal length 2 is:
+SEQ = {{op1, op2}1, {op2, op1}2, {op3, op4}3, {op4, op3}4}
+where the subscript of each sequence is its ID, and
+op1 = Relabelling the edge 〈v1, v2〉 to label y;
+op2 = Relabelling the edge 〈v1, v3〉 to label x;
+op3 = Relabelling the vertex v2 to label C.
+op4 = Relabelling the vertex v3 to label B.
+Then, the values of random variables in our model could be:
+1. First, we consider GED as a random variable, which has
+the value 2 in this example. (GED = 2)
+2. Second, we randomly choose one sequence from SEQ,
+which is seq2 = {op2, op1}. Therefore, in this case the
+random variable S = 2.
+3. Third, the numbers of RV and RE operations in seq2 are
+0 and 2, respectively. Therefore, the random variables
+X = 0 and Y = 2 in this example.
+4. Then, after conducting operations in seq2, the number of
+vertices covered by relabelled edges is 3, and the number
+of vertices either relabelled or covered by relabelled edges
+is 3. Therefore, the random variables Z = 3 and R = 3.
+5. Finally, GBD is considered to be the random variable,
+where GBD = 2 in this example.
+Note that this example shows a particular case where we
+choose the operation sequence seq2. If a different opera-
+tion sequence in SEQ is chosen in the second step, then
+all the above random variables could have different val-
+ues. For instance, if we choose the operation sequence
+seq3, then the values of random variables will become
+S = 3, X = 2, Y = 0, Z = 0 and R = 2.
+Finally, from the definitions of the random variables above
+and their relationships, we derive the formula for calculating
+Λ1(G
+′
+1, G
+′
+2; τ, ϕ), which is stated in Theorem 3.
+Av1
+Bv2 C v3
+x y
+G′1
+Au1
+Bu2 C u3
+y x
+G′2
+Figure 3: Extended Graphs for Example 4
+Theorem 3.
+Λ1(G
+′
+1, G
+′
+2; τ, ϕ) = Pr[GBD = ϕ | GED = τ ]
+=
+∑
+x
+Ω1(x, τ)
+∑
+m
+Ω2(m,x, τ)
+∑
+r
+Ω3(r, ϕ) · Ω4(x, r,m) (7)
+where
+Ω1(x, τ) = H
+(
+x; |V ′1 |+
+(|V ′1 |
+2
+)
+, |V ′1 |, τ
+)
+(8)
+Ω2(m,x, τ) =
+((|V ′1 |2 )
+τ−x
+)−1∑m
+t=0 (−1)
+m−t(|V ′1 |
+m
+)(
+m
+t
+)( (t2)
+τ−x
+)
+(9)
+Ω3(r, ϕ) =
+(
+r
+r−ϕ
+)
+· (D−1)
+ϕ
+Dr (10)
+Ω4(x, r,m) = H (x+m− r; |V ′1 |,m, x) (11)
+and
+H(x;M,K,N) =
+(
+K
+x
+)(
+M−K
+N−x
+)(
+M
+N
+)−1
+(12)
+D = |LV | ·
+(|V ′1 |+|LE |−1
+|LE |
+)
+(13)
+Proof. Please refer to Appendix A.
+5.2 Calculating Λ2(G′1,G′2; τ, ϕ)
+In this subsection, we aim to calculate Λ2(G
+′
+1, G
+′
+2; τ, ϕ),
+which is essentially to infer the prior distributions of GEDs
+and GBDs respectively among all pairs of graphs involved
+in the graph similarity search.
+5.2.1 Calculating the prior distribution of GBDs
+In practice, we pre-compute the prior distribution of GBDs,
+without knowing the query graph Q in the graph similarity
+search problem. This is because in most real-world scenar-
+ios [4] [8], the query graph Q ofter comes from the same
+population as graphs in database D. As a counter example,
+it is unusual to use a query graph of protein structure to
+search for similar graphs in social networks, and vice versa.
+Therefore, we assume that GEDs and GBDs between Q and
+each graph G in database D, follow the same prior distribu-
+tions as those among all graph pairs in D.
+To calculate the prior distribution of GBDs, we first ran-
+domly sample α% of graph pairs from the database D, and
+calculate the GBD between each pair of sampled graphs.
+Specifically, let |D| be the number of graphs in database
+D, and then the number of sampled pairs of graphs is α% ·
+|D| · (|D| − 1). Next, we utilize the Gaussian Mixture Model
+(GMM) [22] to approximate the distribution of GBDs be-
+tween all pairs of sampled graphs, which is a common ap-
+proach to estimate unknown distribution densities. Finally,
+the probability density function (PDF) of GMM is:
+f(φ) =
+∑K
+i=1 πi · N (φ;µi, σi) (14)
+where K is the number of components in the mixture model,
+whose value is usually empirically set by user. N is the prob-
+ability density function (PDF) of the normal distribution.
+Here, πi, µi and σi are parameters of the i-th component in
+the mixture model, which can be inferred from the GBDs
+over sampled graph pairs. Please refer to [22] for the detailed
+process of inferring parameters in GMM.
+Now, we can compute the prior probability Pr[GBD = ϕ]
+by integrating the probability density function f(φ) on the
+adjacent interval of ϕ, i.e., [ϕ− 0.5, ϕ+ 0.5].
+Pr[GBD = ϕ] =
+∫ ϕ+0.5
+ϕ−0.5
+∑K
+i=1 πi · N (φ;µi, σi) dφ (15)
+Graph Branch Distances
+0 5 10 15
+F
+re
+qu
+en
+cy
+0
+0.03
+0.06
+0.09
+0.12
+0.15
+0.18
+0.21
+Sampled
+Inferred
+Figure 4: Inferred prior dis-
+tribution of GBDs on Fin-
+gerprint data set
+Figure 5: Jeffreys prior dis-
+tribution of GEDs on Fin-
+gerprint data set
+Note that this integration technique is commonly used in
+the field called continuity correction [23], which aims to ap-
+proximate discrete distributions by continuous distributions.
+In addition, the choice of integral interval [ϕ− 0.5, ϕ+ 0.5]
+is a common practice in the continuity correction field [24].
+We give Example 5 below to better illustrate the process
+of computing the prior distribution of GBDs.
+Example 5. In the Fingerprint data set of IAM Graph
+Database [25] containing 2,273 graphs (i.e., 5,164,256 pairs
+of graphs), we aim to calculate the prior distribution of GBDs
+of the graph pairs.
+We first randomly sample 60,000 pairs of graphs from the
+Fingerprint dataset, where the distribution of GBDs between
+all pairs of sampled graphs is represented by the blue his-
+togram in Figure 4.
+Then, we can infer the parameters of the Gaussian Mix-
+ture Model (GMM) from GBDs between all pairs of sampled
+graphs by utilizing the algorithm in [22]. The red line in
+Figure 4 shows inferred GMM probability density function,
+which is clearly a close approximation to the real distribution
+of GBDs. This way, we can compute and store the probabil-
+ity Pr[GBD = ϕ] for each possible value of ϕ by Equation
+(15). The range of ϕ is discussed in Section 6.3.
+5.2.2 Calculating the prior distribution of GEDs
+Now we focus on calculating the prior distribution of GEDs.
+Recall that the GED computation is NP-hard [4], and a
+recent study [9] even indicates that the most popular algo-
+rithm for calculating the exact GED is incapable of handling
+graphs with more than 12 vertices. Therefore, sampling
+some graph pairs and calculating the GED between each
+pair is infeasible especially for large graphs, which means
+that we cannot simply infer the prior distribution of GEDs
+from sampled graph pairs.
+To address this problem, we utilized the Jeffreys prior [26]
+as the prior distribution of GEDs. The Jeffreys prior is well-
+known for its non-informative property [27], which means
+that it provides very little additional information to the
+probabilistic model. Therefore, Jeffreys prior is a common
+choice in Bayesian methods when we know little about the
+actual prior distribution. By utilizing the Jeffreys prior, the
+prior probability Pr[GED = τ ] is calculated as follows.
+Pr[GED = τ ] = 1
+C
+√∑
+ϕ Λ1 ·
+(
+d
+dτ
+log Λ1
+)2
+(16)
+where Λ1 is short for Λ1(G
+′
+1, G
+′
+2; τ, ϕ), which is defined in
+Theorem 3. ϕ is the value of GBD, and C is a constant for
+normalization. From Equation (7), we have:
+d
+dτ
+log Λ1 =
+1
+Λ1
+{∑
+x Ω1
+∑
+m
+(
+d
+dτ
+Ω2
+)∑
+r Ω3Ω4
++
+∑
+x
+(
+d
+dτ
+Ω1
+)∑
+m Ω2
+∑
+r Ω3Ω4
+}
+. (17)
+where Ω1, Ω2, Ω3 and Ω4 are short for Ω1(x, τ), Ω2(m,x, τ),
+Ω3(r, ϕ) and Ω4(x, r,m), respectively, which are defined in
+Theorem 3. After differentiating the right hand sides of
+Equations (8) and (9), we can obtain the closed forms of
+d
+dτ
+Ω1 and
+d
+dτ
+Ω2 as follows.
+d
+dτ
+Ω1(x, τ) =
+( 1
+2
+v(v+1)
+τ
+)(
+v
+x
+)( 1
+2
+v(v−1)
+τ−x
+)
+· F1 (18)
+d
+dτ
+Ω2(m,x, τ) =
+( 1
+2
+v(v−1)
+τ−x
+)−1(
+v
+m
+)
+· F2 ·
+∑m
+t F3 · F4 (19)
+where
+F1 = H(τ)−H( 12v(v + 1)− 2τ)−H(τ − x)
++H(x− τ + 1
+2
+v(v − 1)), (20)
+F2 = ψ(τ − x+ 1)− ψ(x+ 1− τ + 12v(v − 1)), (21)
+F3 = (−1)m−t
+(
+m
+t
+)( 1
+2
+t(t−1)
+τ−x
+)
+and (22)
+F4 = 1 + ψ(x+ 1− τ + 12 t(t− 1))− ψ(τ − x+ 1). (23)
+Here, v is short for |V ′1 |, τ is the value of GED, and x,m, t
+are summation subscripts in Equation (7). H(n) is the n-th
+Harmonic Number, and ψ(·) is the Digamma Function [28].
+Now, we can obtain the closed form of the prior proba-
+bility Pr[GED = τ ] by synthesizing Equations (16) ∼ (23).
+In addition, given a data set, the value of prior probability
+Pr[GED = τ ] only depends on τ and |V ′1 |, which can be
+denoted by a function
+F (τ, |V ′1 |) , Pr[GED = τ ] (24)
+Therefore, for each data set, we pre-compute and store the
+value of function F (τ, |V ′1 |) for each possible value of τ and
+|V ′1 |. Then, we store the pre-computed values of F (τ, |V ′1 |)
+in a matrix for quick looking up the value of Pr[GED =
+τ ] when searching similar graphs. In Section 6.3, we will
+discuss the ranges of τ and |V ′1 |, and analyze the time and
+space complexity of computing Λ2(G
+′
+1, G
+′
+2, τ, ϕ) in detail.
+We show part of the Jeffreys prior distribution of GEDs
+on the Fingerprint data set [25] in Figure 5 as an example,
+where the x-axis represents values of |V ′1 |, and the y-axis
+represents values of τ . The gray scale of each 1× 1 block in
+Figure 5 represents the corresponding value of F (τ, |V ′1 |).
+6. GRAPH SIMILARITY SEARCH WITH
+THE PROBABILISTIC MODEL
+6.1 Graph Similarity Search Algorithm
+In this section, first we elaborate on our graph similarity
+search algorithm (i.e., GBDA) based on the model derived
+in the previous section, which consists of two stages: offline
+pre-processing and online querying. Then, we study the
+time and space complexity of these two stages in detail.
+Algorithm 1 Graph Similarity Search with Graph Branch
+Distance Approximation (GBDA)
+Input: a query graph Q, a graph database D,
+a similarity threshold τ̂ , and a probability threshold γ
+Output: the search result D0
+for each graph G ∈ D do
+Step 1*: Pre-compute Λ2(Q
+′, G′; τ, ϕ)
+Step 2: Calculate GBD(Q′, G′) by Definition 4.
+Step 3: Given GBD(Q′, G′) = ϕ, we calculate
+Φ =Pr[GED(Q,G) ≤ τ̂ | GBD(Q,G) = ϕ]
+=
+τ̂∑
+τ=0
+Λ1(Q
+′, G′; τ, ϕ) · Λ2(Q′, G′; τ, ϕ)
+where Λ1(Q
+′, G′; τ, ϕ) is calculated by Theorem 3.
+Step 4: Insert G into D0 if Φ ≥ γ
+end for
+Assuming that we have a query graph Q, a graph database
+D, a similarity threshold τ̂ , and a probability threshold γ,
+the search results D0 is achieved by the Algorithm 1 above,
+where Q′ and G′ are the extended graphs of Q and G, re-
+spectively. Note that Step 1 tagged with symbol * can be
+conducted in the offline stage, as discussed in Section 5.2.
+We give the Example 6 below to better illustrate the process
+of each iteration in Algorithm 1.
+Example 6. Assume that the graph G1 in Figure 1 is the
+query graph Q, and G2 in Figure 1 is a graph in database
+D. Given the similarity threshold τ̂ = 3 and the probability
+threshold γ = 0.8, the process of determining whether G2
+should be in the search result D0 is as follows.
+1. First, according to the methods described in Section 5.2,
+we can pre-compute the value of Λ2(Q
+′, G′2; τ, ϕ) by in-
+ferring the prior distributions of GBDs and GEDs on
+database D. Since this is a simulated example and there is
+no concrete database D, we assume that Λ2(Q
+′, G′2; τ, ϕ) ≡
+0.8 for all possible values of τ and ϕ.
+2. Second, from Example 3, we know GBD(Q,G2) = 3.
+3. Then, according to the formulae in Theorem 3, we have:
+Φ =
+∑3
+τ=0 Λ1(Q
+′, G′; τ, ϕ) · Λ2(Q′, G′; τ, ϕ)
+= (0 + 0 + 0.5113 + 0.5631)× 0.8 = 0.8595 > γ = 0.8
+4. Therefore, G2 is inserted into the search result D0.
+6.2 Complexity Analysis of Online Stage
+The online querying stage in our approach includes Steps
+2, 3 and 4 in Algorithm 1, where Step 4 clearly costs O(1)
+time for each graph G. In addition, from the discussions in
+Section 3, Step 2 costsO(nd) time, where n = max{|VG|, |VQ|},
+and d is the average degree of graph G.
+Now we concentrate on analyzing the time complexity of
+computing Step 3 in Algorithm 1.
+Since Λ2 has already been pre-computed in the offline
+stage (i.e., Step 1), its value can be obtained in O(1) time
+for each τ ∈ [0, τ̂ ] and graph G ∈ D.
+Let the time for computing Ω1, Ω2, Ω3 and Ω4 in Theorem
+3 be C1, C2, C3 and C4, respectively. From Equation (7) in
+Theorem 3, the time for computing Λ1 for each τ ∈ [0, τ̂ ]
+and graph G ∈ D is:∑
+Ω1︷︸︸︷
+xC1 +
+∑
+Ω2︷ ︸︸ ︷
+xmC2 +
+∑
+Ω3·Ω4︷ ︸︸ ︷
+xmr(C3 · C4) (25)
+where x,m and r are the summation subscripts in Equation
+(7), and the ranges of x,m and r are:
+• x ∈ [0, τ ]. Since x is the number of RV operations, x must
+not be larger than the number of graph edit operations τ .
+• m ∈ [0, 2τ ]. Since m is the number of vertices covered
+by relabelled edges given the relabelled edge number Y =
+τ − x, and each edge can cover at most two vertices, we
+have 0 ≤ m ≤ 2(τ − x) ≤ 2τ .
+• r ∈ [0, 3τ ]. Note that r is the number of vertices either re-
+labelled or covered by relabelled edges when the relabelled
+vertex number is X = x and the number of vertices cov-
+ered by relabelled edges is Z = m. Therefore, we have
+0 ≤ r ≤ x+m ≤ τ + 2τ = 3τ .
+Note that when utilizing Stirling’s Formula [29], we can
+calculate the combinational numbers in O(1) time. There-
+fore, from Equations (8) ∼ (11) in Theorem 3, it is clear
+that C1 = C3 = C4 = O(1) and C2 = O(m). Since m ≤ 2τ ,
+we have C2 = O(τ). Therefore, the time of computing Λ1
+for each τ ∈ [0, τ̂ ] and graph G ∈ D is:∑
+Ω1︷ ︸︸ ︷
+O(τ) +
+∑
+Ω2︷ ︸︸ ︷
+O(τ3) +
+∑
+Ω3·Ω4︷ ︸︸ ︷
+O(τ3) = O(τ3) (26)
+Moreover, from the above discussions about the ranges of
+summation subscripts, for any τ ∈ [0, τ̂), we have:
+∑τ̂
+x=0
+∑2τ̂
+m=0 Ω2(m,x, τ̂)
+=
+∑τ̂
+x=0
+∑2τ̂
+m=0 Pr[Z = m | Y = τ̂ − x]
+=
+∑τ
+x=0
+∑2τ
+m=0 Pr[Z = m | Y = τ − x]
++
+∑τ̂−τ−1
+x=0
+∑2τ
+m=0 Pr[Z = m | Y = τ̂ − x]
++
+∑τ
+x=0
+∑2τ̂
+m=2τ+1 Pr[Z = m | Y = τ̂ − x]
++
+∑τ̂−τ−1
+x=0
+∑2τ̂
+m=2τ+1 Pr[Z = m | Y = τ̂ − x] (27)
+=f(m,x, τ̂) +
+∑τ
+x=0
+∑2τ
+m=0 Ω2(m,x, τ) (28)
+where f(m,x, τ̂) is sum of last three terms in Equation (27).
+Equation (28) means, the value of
+∑
+x,m Ω2(m,x, τ) where
+τ < τ̂ have already been calculated in the process of comput-
+ing
+∑
+x,m Ω2(m,x, τ̂). Therefore, we can reduce redundant
+computations by only computing
+∑
+x,m Ω2(m,x, τ̂) once to
+obtain values of
+∑
+x,m Ω2(m,x, τ) for all τ < τ̂ . Similar con-
+clusions can also be derived for
+∑
+x,m,r Ω3(r, ϕ) ·Ω4(x, r,m),
+where the detailed proofs are omitted here.
+So the time of computing Step 3 in Algorithm 1 is:∑
+Ω2
+∑
+Ω3·Ω4︷ ︸︸ ︷
+O(τ̂3) +
+∑τ̂
+τ=0{
+∑
+Ω1︷ ︸︸ ︷
+O(τ) +
+Λ2︷ ︸︸ ︷
+O(1)} = O(τ̂3) (29)
+for each graph G in database D.
+In conclusion, the time of the whole online stage is:
+Step 2︷ ︸︸ ︷
+O(nd) +
+Step 3︷ ︸︸ ︷
+O(τ̂3) +
+Step 4︷ ︸︸ ︷
+O(1) = O(nd+ τ̂3) (30)
+for each graph G in database D, where n = max{|VG|, |VQ|},
+d is the average degree of graph G, and τ̂ is the similarity
+threshold in the graph similarity search problem.
+Note that the similarity threshold τ̂ is often set as a small
+value (i.e., τ̂ ≤ 10) and does not increase with the number
+of vertices n in previous studies [4] [8], thus, we can assume
+that τ̂ is a constant with regard to n when the graph is
+sufficiently large. Moreover, most real-world graphs studied
+in related works [14] [15] are scale-free graphs [18], such as
+virus molecular, protein and antivirus compound structures.
+The fraction of vertices with degree k in scale-free graphs is
+C ·k−δ [18], where 2 < δ < 3, and C is a constant. Therefore,
+the average degree in scale-free graphs is:
+d =
+n−1∑
+k=1
+k · Ck−δ <
+n−1∑
+k=1
+C
+k
+= C ·H(n− 1) = O(logn) (31)
+where H(n) is the n-th Harmonic Number.
+Therefore, under the assumptions above, the time of the
+whole online stage in our approach is
+O(nd+ τ̂3) = O(n logn) (32)
+for each graphG ∈ D, and O(|D|n logn) for the whole online
+stage, where |D| is the graph number in database D.
+6.3 Complexity Analysis of Offline Stage
+The offline pre-processing stage in our approach is Step
+1 in Algorithm 1, which is essentially to pre-compute the
+prior distributions of GEDs and GBDs respectively among
+all pairs of graphs involved in the graph similarity search.
+6.3.1 Complexity Analysis of Computing the Prior
+Distribution of GBDs
+As discussed in Section 5.1, the prior distributions of GBDs
+can be pre-computed by the four steps below:
+Step 1.1: Sample α% of graph pairs from the database D.
+Step 1.2: Calculate GBD between each sampled graph pairs.
+Step 1.3: Learn the Gaussian Mixture Model (GMM) of
+the GBDs between sampled graph pairs.
+Step 1.4: Calculate Pr[GBD = ϕ] for each possible value
+of ϕ by using Equation (15).
+Let N be the number of graph pairs sampled in Step 1.1.
+Then, Step 1.1 costs O(N) time. From the discussions in
+Section 3, Step 1.2 costs O(N · nd) time, where n is the
+maximal number of vertices among the sampled graphs, and
+d is the average degree of the sampled graphs. The learn-
+ing process of GMM in Step 1.3 costs O(N ·K) time [22],
+where K is the number of components in GMM, and  is the
+maximal learning iterations for learning GMM.
+As for Step 1.4, since ϕ is the value of GBD, from the
+definition of GBD, the possible values of ϕ are essentially
+{0, 1, 2..., n}, where n is the maximal number of vertices
+among the sampled graphs. According to Equation (15),
+computing Pr[GBD = ϕ] for each ϕ costs O(K) time, where
+K is the number of components in GMM derived in Step 1.3.
+Thus, Step 1.4 costs O(nK) time.
+Note that in the Gaussian Mixture Model, the component
+number K and the maximal learning iterations  are fixed
+constants. Therefore, the prior distributions of GBDs can
+be calculated in time
+Step 1.1︷ ︸︸ ︷
+O(N) +
+Step 1.2︷ ︸︸ ︷
+O(Nnd) +
+Step 1.3︷ ︸︸ ︷
+O(NK) +
+Step 1.4︷ ︸︸ ︷
+O(nK) = O(Nnd) (33)
+where N is the number of graph pairs sampled in Step 1.1,
+n is the maximal number of vertices among sampled graphs,
+and d is the average degree of sampled graphs.
+Based on the discussions above, the number of pre-computed
+values of Pr[GBD = ϕ] is at most n. Thus, the space cost
+of storing the prior distribution of GBDs is O(n).
+6.3.2 Complexity Analysis of Computing the Prior
+Distribution of GEDs
+According to the discussions in Section 5.2, computing the
+prior distribution of GEDs is essentially calculating Equa-
+tion (24) for each possible values of τ and |V ′1 |.
+First, by comparing the structures of Equations (7) with
+(17), when τ and |V ′1 | are fixed values, it is clear that com-
+puting d
+dτ
+log Λ1 costs the same time as computing Λ1, which
+is O(τ̂3) as discussed in Section 6.2, where τ̂ is the user-
+defined similarity threshold. n and d are the maximal num-
+ber of vertices and the average degree among all the graphs
+involved in the graph similarity search, respectively.
+Then, since it is clear that one graph edit operation can
+at most change two branches, the possible values of GBDs ϕ
+in Equation (16) are essentially {0, 1, 2..., 2τ̂}. According to
+Equation (16), given τ and |V ′1 |, the prior probability value
+of F (τ, |V ′1 |) , Pr[GED = τ ] can be calculated in time
+complexity O(2τ̂ · τ̂3) = O(τ̂4).
+Finally, recall that computing the GED prior distribution
+is essentially calculating Equation (24) for all possible values
+of τ and |V ′1 |, and it is clear that the possible values of τ are
+{0, 1, 2..., τ̂}, where τ̂ is the user-defined similarity thresh-
+old. In addition, the possible values of |V ′1 | are essentially
+{1, 2, ...n}, where n is the maximal number of vertices among
+all graphs involved the graph similarity search. Therefore,
+the time of calculating the GED prior distribution is:
+O(τ̂ · n · τ̂4) = O(nτ̂5)
+According to Section 5.2.2, we need to store a matrix
+whose rows represent possible values of τ , and columns rep-
+resent possible values of |V ′1 |. Therefore, the space cost of
+storing the prior distribution of GEDs is O(τ̂ · n).
+Therefore, the time complexity of the offline stage is:
+GBD Prior︷ ︸︸ ︷
+O(Nnd) +
+GED Prior︷ ︸︸ ︷
+O(nτ̂5) = O(Nnd+ nτ̂5)
+Table 2: Statistics of Data Sets
+Data Set |D| |Q| Vm Em d Scale-free
+AIDS 1896 100 95 103 2.1 Yes
+Finger 2159 114 26 26 1.7 Yes
+GREC 1045 55 24 29 2.1 Yes
+Syn-1 3430 70 100K 1M 9.6 Yes
+Syn-2 3430 70 100K 1M 9.4 No
+Note: |D| is the number of graphs in database D. |Q| is the
+number of query graphs. Vm and Em are the maximal numbers
+of vertices and edges, respectively, while d is the average degree.
+K means thousand and M means million.
+and the space complexity of the offline stage is:
+GBD Prior︷ ︸︸ ︷
+O(n) +
+GED Prior︷ ︸︸ ︷
+O(τ̂ · n) = O(n(1 + τ̂))
+where N is the number of graph pairs sampled in Step 1.1,
+n and d are the maximal number of vertices and the average
+degree among all the graphs involved in the graph simialrity
+search, respetively. τ̂ is the user-defined similarity threshold.
+7. EXPERIMENTS
+7.1 Data Sets and Settings
+In this section, we evaluate our approaches on 3 real-world
+data sets (i.e., AIDS, Fingerprint and GREC) from the IAM
+Graph Database [25], and 2 synthetic data sets (i.e., Syn-1
+and Syn-2). The statistics of data sets are listed in Table 2.
+The 3 real-world data sets are widely-used for evaluating
+the performance of GED estimation methods in previous
+works [14] [15] [16]. However, in order to evaluate how well
+the GED is approximated, we must know the exact value of
+GED, which is NP-hard to compute [4]. Specifically, even
+the state-of-the-art method [9] cannot compute one exact
+GED for graphs with 100 vertices within 48 hours on our
+machine. Thus, the sizes of graphs in the 4 real-world data
+sets are small, otherwise it is infeasible to calculate the exact
+GED for evaluations.
+However, we still manage to evaluate our proposed method
+on large graphs. To address the problem above, we gener-
+ate 2 sets of large random graphs (i.e., Syn-1 and Syn-2),
+where the GED between each pair of graphs is known. Both
+data sets Syn-1 and Syn-2 contain 7 subsets of graphs, where
+each subset contains 500 graphs whose numbers of vertices
+are 1K, 2K, 5K, 10K, 20K, 50K, 100K, respectively. The dif-
+ference between data sets Syn-1 and Syn-2 is that the graphs
+in Syn-1 satisfy the scale-free property [18] while graphs in
+Syn-2 are not, which means the fraction of vertices with de-
+gree k in graphs of data set Syn-1 is proportional to k−δ
+where 2 < δ < 3. The algorithm of generating synthetic
+graphs is described in Appendix F.
+For each real data set, we randomly select 5% graphs as
+query graphs, while the remaining 95% graphs constitute the
+graph database D. For each synthetic data set, we randomly
+select 10 graphs from each of its subset as query graphs.
+We evaluate our method with the similarity threshold
+τ̂ = {1, 2, ..., 10}, which is in the commonly used range of
+the similarity threshold in previous studies [4] [8]. All our
+experiments are conducted on 12 machines where each of
+them has 32 Intel E5 CPUs (2-core, 2.40 GHz) and 128G
+DDR3 RAMs. The details of experiments will be described
+in the following sections.
+7.2 Evaluating Offline Stage
+In this section, we evaluate the time and space costs of the
+offline stage in our GBDA approach, which is essentially to
+pre-compute the prior distributions of GEDs and GBDs, on
+both real and synthetic data sets. In order to speed up the
+experiment progress, we calculate F (τ, v) for each possible
+Table 3: Costs of computing GBD prior distribution
+Data Set AIDS Finger GREC Syn-1 Syn-2
+Time Costs 11.1s 7.5s 20.6s 3.8h 3.2h
+Space Costs 0.06kb 0.04kb 0.10kb 13.3gb 0.3gb
+Table 4: Costs of computing GED prior distribution
+Data Set AIDS Finger GREC Syn-1 Syn-2∑
+i Ti 70.32h 16.91h 15.40h 6.31h 6.31h∑
+i Si 1.5kb 0.4kb 0.4kb 0.1kb 0.1kb
+maxi{Ti} 0.3h 0.3h 0.3h 0.4h 0.4h
+maxi{Si} 0.02kb 0.02kb 0.02kb 0.01kb 0.01kb
+Note: Ti and Si are the time and space costs of the i-th parallel
+process, respectively.
+∑
+i Ti and
+∑
+i Si are the overall time
+and space costs among all processes, respectively. maxi{Ti}
+and maxi{Si} are the maximal time and space costs among all
+processes, respectively. h means hours and s means seconds. kb
+means KBytes and gb means GBytes.
+value of τ and v in parallel, where F is the probability mass
+function of the prior distribution of GEDs defined in Equa-
+tion (24). In addition, the prior distribution of GBDs for
+each data set is calculated by a single process, respectively.
+Table 3 shows the time and space costs of computing GBD
+prior distribution on different data sets, where the number
+of graph pairs sampled from each data set for estimating the
+prior distributions of GBDs is set to 100, 000.
+Let the time and space costs of the i-th parallel process
+be Ti and Si, respectively. Table 4 shows the overall time
+and space costs (i.e.,
+∑
+i Ti and
+∑
+i Si), as well as the max-
+imal time and space costs (i.e., maxi{Ti} and maxi{Si})
+among all processes of computing the GED prior distribu-
+tions on different data sets, respectively. Particularly, since
+the processes of computing GED prior distributions are fully
+parallelized, the actual time and space costs are maxi{Ti}
+and
+∑
+i Si, respectively. If we use only one process, the time
+and space costs will be
+∑
+i Ti and maxi{Si}, respectively.
+The experimental results show that, we can greatly reduce
+the time cost of calculating GED prior distribution with the
+support of parallel computing in practice. Moreover, since
+every pair of branches can be stored and compared sepa-
+rately from other pairs, we can also accelerate the computa-
+tion of GBD prior distribution by calculating GBDs between
+sampled graphs in parallel.
+In addition, we conduct experiments to analyze how the
+parameters in our method influence the time and space costs
+of the offline stage. Figures 6∼13 show the trends of overall
+time and space costs for computing the prior distributions
+of GBDs and GEDs on the synthetic data set Syn-1, with
+various numbers of vertices in graphs (i.e., n), and different
+settings of parameters N and τ̂ , respectively, where N is
+the number of graph pairs sampled from each data set for
+estimating the prior distributions of GBDs, and τ̂ is the
+user-defined similarity threshold.
+The experimental results generally confirm the correctness
+of our complexity analysis in Section 6.3 of our paper. How-
+ever, the overall time and space costs of computing the GED
+prior distribution do not exactly follow the theoretical anal-
+ysis. This is because the possible numbers of vertices in syn-
+thetic graphs are essentially {1K, 2K, 5K, 10K, ..., 100K},
+instead of the worst-case range {1, 2, 3..., 100K} as claimed
+in Section 6.3. Therefore, the time complexity of comput-
+ing GED prior distribution on synthetic data sets is O(Cτ̂5)
+rather than O(nτ̂5), where C is a variable sub-linear to n,
+and n is the maximal number of vertices in graphs while
+τ̂ is the similarity threshold. In addition, computing GED
+prior distributions on real data sets still costs O(nτ̂5) time
+since the number of vertices in their graphs ranges from 3
+to n, which explains why the overall time costs of comput-
+ing GED prior distributions on the synthetic data sets (i.e.,
+O(Cτ̂5)) are smaller than the costs on most real data sets
+(i.e., O(nτ̂5)).
+7.3 Evaluating Online Stage
+In this subsection, we compare the efficiency and accu-
+racy of the online stage of our GBDA approach with three
+competitors (i.e., the LSAP [14], Greedy-Sort-GED [15] and
+Graph Seriation [16]), by conducting graph similarity search
+tasks over both real and synthetic data sets. In the experi-
+ments, we also analyze how the efficiency and effectiveness
+(i.e., accuracy, recall and F1-score) of our method are influ-
+enced by the parameters, which are, the similarity threshold
+τ̂ , the probability threshold γ, and the number of vertices
+in graphs (i.e., n).
+7.3.1 The Efficiency Evaluation
+We first evaluate the query efficiency of our GBDA ap-
+proach and three competitors by comparing the average
+query response time on each real data set with various sim-
+ilarity thresholds τ̂ . The result in Figure 14 shows that our
+approach (i.e., GBDA) is more efficient than all the other
+three competitors on all real data sets when τ̂ is set to 1,5,
+and 10, respectively. The results also confirm the correct-
+ness of our complexity analysis in Section 6.2.
+In addition, we studied how the number of vertices in
+graphs (i.e., n) influences the efficiency of our approach by
+comparing the query response time on synthetic data sets
+with various similarity thresholds τ̂ , where the results are
+shown in Figures 15 and 16.
+The results in Figures 15 and 16 show that our approach
+is more efficient than the competitors on large graphs when
+the similarity threshold τ̂ = 1, 2, 5 and 10. The results also
+show that the efficiency of our method is not influenced by
+whether the graphs are scale-free or not.
+Note that the LSAP method can at most handle graphs
+with less than 20K vertices while the other competitors (i.e.,
+Greedy-Sort-GED and Seriation) can only handle graphs
+with 10K vertices. Specifically, when the graphs have more
+than 20K vertices, all of the competitors consume more than
+128G memory on our machines, which exceeds the amount of
+our physical memory. However, our proposed method (i.e.,
+GBDA) can handle graphs with 100K vertices efficiently,
+which means our method has better scalability (with respect
+to the number of vertices n) than the competitors.
+7.3.2 The Effectiveness Evaluation
+We evaluate the effectiveness (i.e., accuracy, recall and
+F1-score) of our GBDA approach and three competitors by
+comparing the average precision of the query results on each
+real data sets with various probability thresholds γ. The re-
+sults in Figures 17, 18 and 19 show that our approach always
+out-performs the other three competitors in accuracy when
+γ is set to 0.7, 0.8 and 0.9. Specifically, our method usu-
+ally achieves the highest accuracy when τ̂ = 2, and slightly
+decreases when τ̂ grows larger.
+Although the recall of our method is lower than most
+competitors, as shown in Figures 20, 21 and 22, the F1-
+score of our method is mostly higher than the other three
+methods when γ is set to 0.7, 0.8 and 0.9. Specifically,
+our method usually achieves the highest recall and F1-Score
+when τ̂ = 10.
+In addition, we studied how the number of vertices in
+graphs (i.e., n) influences the accuracy of our approach by
+Figure 6: Time Costs vs.
+n for Computing GBD Prior
+Distribution with various N
+Figure 7: Space Costs vs.
+n for Computing GBD Prior
+Distribution with various N
+Figure 8: Time Costs vs.
+N for Computing GBD Prior
+Distribution with various n
+Figure 9: Space Costs vs.
+N for Computing GBD Prior
+Distribution with various n
+Figure 10: Time Costs vs.
+τ̂ for Computing GED Prior
+Distribution with various n
+Figure 11: Space Costs vs.
+τ̂ for Computing GED Prior
+Distribution with various n
+Figure 12: Time Costs vs.
+n for Computing GED Prior
+Distribution with various τ̂
+Figure 13: Space Costs vs.
+n for Computing GED Prior
+Distribution with various τ̂
+comparing the precision of search results on synthetic data
+sets with various probability thresholds γ and similarity
+thresholds τ̂ . Recall that the LSAP method can at most
+handle graphs with less than 20K vertices while the other
+competitors (i.e., Greedy-Sort-GED and Seriation) can only
+handle graphs with 10K vertices on our machine. From the
+results shown in Figures 26∼29, it is clear that the accuracy
+of our method is stable to the graph size (i.e., the number
+of vertices). There is no significant difference between the
+accuracy of our method under various settings of the proba-
+bility threshold γ. This results demonstrate the robustness
+of our method under different settings of parameters.
+8. RELATED WORKS
+8.1 Exact GED Computation
+The A∗ algorithm [5] is the state-of-the-art method for
+exact GED computation, which searches the whole space
+of possible bijective mappings between the vertices of two
+graphs, and finds the mapping with the minimal edit cost by
+a best-first search. Recently, a method [9] was proposed as
+an improvement to the A∗ algorithm on sparse graphs, which
+aims to find the optimal matching between edges rather than
+vertices. The exact GED computation can also be formu-
+lated as a quadratic assignment problem (QAP) [30], which
+explicitly represents the graph edit cost deduced from a par-
+ticular vertex mapping by the sum of costs for all vertex
+and edge edit operations, respectively. It then searches the
+vertex mapping with minimal edit cost in an optimization
+process. It has been proved that the time for calculating
+the exact GED is exponential in terms of the sizes of the in-
+volved graphs [4], which restricts the efficiency of graph sim-
+ilarity searches on large graphs. A prevalent improvement
+of the graph similarity search based on exact GED is to ap-
+ply the filter-and-verification framework [4] [6] [7] [8], which
+first filters out undesirable graphs from the graph database
+by utilizing lower and upper bounds of GED, and then only
+calculates the exact GED between the query graph and each
+of those remaining candidates.
+8.2 GED Estimation
+Due to the hardness of computing the exact GED (NP-
+hard) [4], various approaches have been proposed to achieve
+an approximate GED by trading accuracy for efficiency.
+One well-studied method [13] [14] for estimating the GED
+between two graphs is to solve a corresponding linear sum
+assignment problem (LSAP), which can be achieved by sim-
+plifying the objective function in the quadratic assignment
+problem (QAP) [30], and is essentially equivalent to the bi-
+partite graph matching problem [14]. Such approaches for-
+mulate the graph similarity search problem as an optimiza-
+tion problem, and obtain the search results by optimization
+techniques such as the Hungarian method [31], the greedy
+method [15] and the genetic algorithm [32]. Therefore, the
+basic idea and the formulation of the graph similarity search
+problem of these approaches are entirely different from ours.
+Another state-of-the-art approach is graph seriation [16],
+which first converts graphs into one-dimensional vectors by
+extracting their leading eigenvalues of the adjacency matrix,
+and then exploits a probabilistic model based on these vec-
+tors to estimate the GED. Although both this approach and
+ours utilize probabilistic models, the structure of our model
+is totally different from the prior work [16]. In addition,
+their model takes the leading eigenvalues of the adjacency
+matrix as the inputs, while the inputs of our model are the
+GBDs.
+There are also methods which introduce machine learning
+approaches to estimate the GED by support vector regres-
+sion (SVR) [33] and artificial neural networks [34]. Note
+that, it is NP-hard [4] to obtain the exact GEDs, so these
+supervised approaches can hardly learn their models from
+the exact GED values directly. Thus, these approaches usu-
+ally take GED estimations from other methods as inputs,
+and are used to enhance the accuracy of other methods [33].
+Figure 14: Time Costs of On-
+line Stage on Real Data Sets
+with various τ̂
+Figure 15: Time Costs of On-
+line Stage vs. n on Syn-1 Data
+Set with various τ̂
+Figure 16: Time Costs of On-
+line Stage vs. n on Syn-2 Data
+Set with various τ̂
+Figure 17: Accuracy vs. τ̂ on
+AIDS Data Set with various γ
+Figure 18: Accuracy vs. τ̂ on
+Fingerprint Data Set with vari-
+ous γ
+Figure 19: Accuracy vs. τ̂ on
+GREC Data Set with various γ
+Figure 20: Recall vs. τ̂ on
+AIDS Data Set with various γ
+Figure 21: Recall vs. τ̂ on Fin-
+gerprint Data Set with various
+γ
+Figure 22: Recall vs. τ̂ on
+GREC Data Set with various γ
+Figure 23: F1-Score vs. τ̂ on
+AIDS Data Set with various γ
+Figure 24: F1-Score vs. τ̂ on
+Fingerprint Data Set with vari-
+ous γ
+Figure 25: F1-Score vs. τ̂ on
+GREC Data Set with various γ
+Figure 26: Accuracy vs. graph
+size n on Syn-1 Data Set with
+various γ (τ̂ = 3)
+Figure 27: Accuracy vs. graph
+size n on Syn-1 Data Set with
+various γ (τ̂ = 4)
+Figure 28: Accuracy vs. graph
+size n on Syn-1 Data Set with
+various γ (τ̂ = 5)
+Figure 29: Accuracy vs. graph
+size n on Syn-1 Data Set with
+various γ (τ̂ = 6)
+9. CONCLUSIONS
+In this paper, we define the branch distance between two
+graphs (GBD), and further prove that the GBD has a prob-
+abilistic relationship with the GED by considering branch
+variations as the result ascribed to graph edit operations
+and modeling this process by probabilistic approaches. Fur-
+thermore, this relation between GED and GBD is lever-
+aged to perform graph similarity searches. Experimental
+results demonstrate both the correctness and effectiveness
+of our approach, which outperforms the comparable meth-
+ods. However, our approach can still be further extended in
+the following directions.
+• Since every branch can be stored separately from others,
+and branch comparisons can be conducted in parallel, it is
+convenient to migrate our data structures and algorithms
+onto a vertex-central distributed graph processing system,
+which deserves further investigation.
+• One very specific kind of sub-structures is chosen as the
+basic unit in our model, that is, the branch. However,
+by applying our modeling approach, it is also interesting
+to build new probabilistic models based on other graph
+sub-structures.
+10. REFERENCES
+[1] Alberto Sanfeliu and King-Sun Fu. A distance
+measure between attributed relational graphs for
+pattern recognition. IEEE transactions on systems,
+man, and cybernetics, (3):353–362, 1983.
+[2] Terry Caelli and Serhiy Kosinov. An eigenspace
+projection clustering method for inexact graph
+matching. IEEE transactions on pattern analysis and
+machine intelligence, 26(4):515–519, 2004.
+[3] Thomas Gärtner, Peter Flach, and Stefan Wrobel. On
+graph kernels: Hardness results and efficient
+alternatives. In Learning Theory and Kernel
+Machines, pages 129–143. Springer, 2003.
+[4] Zhiping Zeng, Anthony KH Tung, Jianyong Wang,
+Jianhua Feng, and Lizhu Zhou. Comparing stars: on
+approximating graph edit distance. Proceedings of the
+VLDB Endowment, 2(1):25–36, 2009.
+[5] Peter E Hart, Nils J Nilsson, and Bertram Raphael. A
+formal basis for the heuristic determination of
+minimum cost paths. IEEE transactions on Systems
+Science and Cybernetics, 4(2):100–107, 1968.
+[6] Guoren Wang, Bin Wang, Xiaochun Yang, and Ge Yu.
+Efficiently indexing large sparse graphs for similarity
+search. IEEE Transactions on Knowledge and Data
+Engineering, 24(3):440–451, 2012.
+[7] Xiang Zhao, Chuan Xiao, Xuemin Lin, and Wei Wang.
+Efficient graph similarity joins with edit distance
+constraints. In IEEE 28th International Conference on
+Data Engineering, pages 834–845. IEEE, 2012.
+[8] Weiguo Zheng, Lei Zou, Xiang Lian, Dong Wang, and
+Dongyan Zhao. Graph similarity search with edit
+distance constraint in large graph databases. In CIKM
+’13: Proceedings of the 22nd ACM international
+conference on Information & Knowledge Management.
+[9] Karam Gouda and Mosab Hassaan. Csi ged: An
+efficient approach for graph edit similarity
+computation. In 32nd IEEE International Conference
+on Data Engineering, ICDE, pages 265–276, 2016.
+[10] Rashid Ibragimov, Maximilian Malek, Jiong Guo, and
+Jan Baumbach. Gedevo: an evolutionary graph edit
+distance algorithm for biological network alignment.
+In OASIcs-OpenAccess Series in Informatics,
+volume 34. Schloss Dagstuhl-Leibniz-Zentrum fuer
+Informatik, 2013.
+[11] Rob Phillips Ron Milo. Cell Biology by the Numbers.
+Garland Science, 2015.
+[12] Xinbo Gao, Bing Xiao, Dacheng Tao, and Xuelong Li.
+A survey of graph edit distance. Pattern Analysis and
+applications, 13(1):113–129, 2010.
+[13] Sébastien Bougleux, Luc Brun, Vincenzo Carletti,
+Pasquale Foggia, Benoit Gaüzère, and Mario Vento.
+Graph edit distance as a quadratic assignment
+problem. Pattern Recognition Letters, 2016.
+[14] Kaspar Riesen and Horst Bunke. Approximate graph
+edit distance computation by means of bipartite graph
+matching. Image and Vision computing,
+27(7):950–959, 2009.
+[15] Kaspar Riesen, Miquel Ferrer, and Horst Bunke.
+Approximate graph edit distance in quadratic time.
+IEEE/ACM transactions on computational biology
+and bioinformatics, 2015.
+[16] Antonio Robles-Kelly and Edwin R Hancock. Graph
+edit distance from spectral seriation. IEEE
+transactions on pattern analysis and machine
+intelligence, 27(3):365–378, 2005.
+[17] Gene H Golub and Charles F Van Loan. Matrix
+computations, volume 3. JHU Press, 2012.
+[18] Wikipedia. Scale-free network, 2017.
+https://en.wikipedia.org/w/index.php?title=
+Scale-free_network.
+[19] C++ Standard Library. std::lexicographical compare,
+2017. http://www.cplusplus.com/reference/
+algorithm/lexicographical_compare/.
+[20] Derek Justice and Alfred Hero. A binary linear
+programming formulation of the graph edit distance.
+IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 28(8):1200–1214, 2006.
+[21] Francesc Serratosa. Fast computation of bipartite
+graph matching. Pattern Recognition Letters,
+45:244–250, 2014.
+[22] Neil E Day. Estimating the components of a mixture
+of normal distributions. Biometrika, 56(3):463–474,
+1969.
+[23] Wikipedia. Continuity correction - wikipedia, 2017.
+[24] Morris H DeGroot and Mark J Schervish. Probability
+and Statistics: Pearson New International Edition.
+Pearson Higher Ed, 2013.
+[25] Kaspar Riesen and Horst Bunke. Iam graph database
+repository for graph based pattern recognition and
+machine learning. Structural, Syntactic, and Statistical
+Pattern Recognition, pages 287–297, 2008.
+[26] Harold Jeffreys. An invariant form for the prior
+probability in estimation problems. In Proceedings of
+the Royal Society of London a: mathematical, physical
+and engineering sciences, volume 186, pages 453–461.
+The Royal Society, 1946.
+[27] Wikipedia. Jeffreys prior - wikipedia, 2017.
+[28] Wikipedia. Digamma function - wikipedia, 2017.
+[29] Lucien Le Cam. The central limit theorem around
+1935. Statistical science, pages 78–91, 1986.
+[30] Kaspar Riesen, Andreas Fischer, and Horst Bunke.
+Computing upper and lower bounds of graph edit
+distance in cubic time. In IAPR Workshop on
+Artificial Neural Networks in Pattern Recognition,
+pages 129–140. Springer, 2014.
+[31] Harold W Kuhn. The hungarian method for the
+assignment problem. Naval research logistics quarterly,
+2(1-2):83–97, 1955.
+[32] Kaspar Riesen, Andreas Fischer, and Horst Bunke.
+Improving approximate graph edit distance using
+genetic algorithms. In Joint IAPR International
+Workshops on Statistical Techniques in Pattern
+Recognition and Structural and Syntactic Pattern
+Recognition, pages 63–72. Springer, 2014.
+[33] Kaspar Riesen. Learning exact graph edit distance. In
+Structural Pattern Recognition with Graph Edit
+Distance, pages 101–119. Springer, 2015.
+[34] Michel Neuhaus and Horst Bunke. Self-organizing
+maps for learning the edit costs in graph matching.
+IEEE Transactions on Systems, Man, and
+Cybernetics, Part B, 35(3):503–514, 2005.
+APPENDIX
+A. PROOF OF THEOREM 3
+Define:
+Ω = Pr[GBD = ϕ | GED = τ ] (34)
+By marginalizing out S from Ω:
+Ω =
+∑
+s
+{Pr[GBD = ϕ, S = s | GED = τ ]}
+By applying Chain Rule on Ω:
+Ω =
+∑
+s
+{Pr[GBD = ϕ | S = s,GED = τ ] · Pr[S = s | GED = τ ]}
+In our model, every GED operation sequence is randomly selected
+with same probability, therefore,
+Pr[S = s | GED = τ ] = 1/|SEQ|
+Let N = |SEQ| and we have:
+Ω =
+1
+N
+∑
+s
+{Pr [GBD = ϕ | S = s,GED = τ ]}
+By marginalizing out X and Y from Ω:
+Ω =
+1
+N
+∑
+s,x,y
+{Pr[GBD = ϕ,X = x, Y = y | S = s,GED = τ ]}
+Since Y = τ − x when given GED = τ and X = x:
+Ω =
+1
+N
+∑
+s,x
+{Pr[GBD = ϕ,X = x, Y = τ − x | S = s,GED = τ ]}
+By applying Chain Rule on Ω:
+Ω =
+1
+N
+∑
+s,x
+{Pr[GBD = ϕ | X = x, Y = τ − x, S = s,GED = τ ]
+· Pr[X = x, Y = τ − x | S = s,GED = τ ]}
+According to the Bayesian Network in Figure 2, we have:
+Ω =
+1
+N
+∑
+s
+∑
+x
+{Pr [GBD = ϕ | X = x, Y = τ − x]
+·Pr [X = x, Y = τ − x | S = s]}
+Define:
+Θ1(x, τ) = Pr [GBD = ϕ | X = x, Y = τ − x] (35)
+Ω1(x, τ) =
+1
+N
+∑
+s
+Pr [X = x, Y = τ − x | S = s] (36)
+Then:
+Ω =
+∑
+x
+{Ω1(x, τ) ·Θ1(x, τ)} (37)
+Likewise, by marginalizing out Z from Θ1(x, τ) and applying
+Chain Rule:
+Θ1(x, τ) =
+∑
+m
+{Pr[GBD = ϕ | Z = m,X = x, Y = τ − x]
+· Pr[Z = m | X = x, Y = τ − x]}
+From Bayesian Network in Figure 2, we have:
+Θ1(x, τ) =
+∑
+m
+{Pr [GBD = ϕ | X = x, Z = m]
+·Pr [Z = m | Y = τ − x]}
+Define:
+Ω2(m,x, τ) = Pr [Z = m | Y = τ − x] (38)
+Θ2(m,x, ϕ) = Pr [GBD = ϕ | X = x, Z = m] (39)
+We have:
+Θ1(x, τ, ϕ) =
+∑
+m
+{Ω2(m,x, τ) ·Θ2(m,x, ϕ)} (40)
+Likewise, by marginalizing out R from Θ2(m,x, ϕ) and then ap-
+plying Chain Rule:
+Θ2(m,x, ϕ) =
+∑
+r
+{Pr [GBD = ϕ | R = r,X = x, Z = m]
+·Pr [R = r | X = x, Z = m]}
+From Bayesian Network in Figure 2, we have:
+Θ2(m,x, ϕ) =
+∑
+r
+{Pr [GBD = ϕ | R = r]
+· Pr [R = r | X = x, Z = m]}
+Define:
+Ω3(r, ϕ) = Pr [GBD = ϕ | R = r] (41)
+Ω4(x, r,m) = Pr [R = r | X = x, Z = m] (42)
+Finally, from Equations (34) ∼ (42) we can obtain:
+Ω =
+∑
+x
+Ω1(x, τ) ·Θ1(x, τ)
+=
+∑
+x
+Ω1(x, τ) ·
+∑
+m
+Ω2(m,x, τ) ·Θ2(m,x, ϕ)
+=
+∑
+x
+Ω1(x, τ) ·
+∑
+m
+Ω2(m,x, τ) ·
+∑
+r
+Ω3(r, ϕ) · Ω4(x, r,m)
+Therefore, Theorem 3 is proved, while the formulae for cal-
+culating Ω1, Ω2, Ω3 and Ω4 are given in Lemmas 1, 2, 3 and
+4, respectively. Please refer to Appendices B, C, D and E for
+Lemmas 1, 2, 3 and 4, respectively.
+B. LEMMA 1 AND ITS PROOF
+Lemma 1. Given GED = τ , for any integer x ∈ [0, τ ], we
+have:
+Ω1(x, τ) =
+1
+|SEQ|
+∑
+s∈SEQ Pr[X = x, Y = τ − x|S = s]
+= H
+(
+x; |V ′1 |+
+(|V ′1 |
+2
+)
+, |V ′1 |, τ
+)
+(43)
+where function H(x;M,K,N) is defined in Equation (12).
+Proof. From the definitions, Ω1(x) is the probability of a ran-
+dom graph edit sequence seqs exactly relabelling x vertices and
+τ − x edges. Since the extended graph G′1 is a complete graph,
+it has |E′1| =
+(|V ′1 |
+2
+)
+edges. Therefore, the number of ways to
+choose x vertices for relabelling is
+(|V ′1 |
+x
+)
+, and the number of ways
+to choose τ − x edges for relabelling is
+((|V ′1 |
+2
+)
+τ−x
+)
+. Then we have:
+Ω1(x, τ) =
+(|V ′1 |
+x
+)
+·
+((|V ′1 |
+2
+)
+τ−x
+)
+(|V ′1 |+(|V ′1 |2 )
+τ
+) = H(x; |V ′1 |+ (|V ′1 |2 ), |V ′1 |, τ)
+where function H(x;M,K,N) is defined in Equation (12).
+C. LEMMA 2 AND ITS PROOF
+Lemma 2. Given GED = τ , for any integer x ∈ [0, τ ] and
+m ∈ [0, |V ′1 |], we have:
+Ω2(m,x, τ) = Pr [Z = m | Y = τ − x]
+=
+((|V ′1 |
+2
+)
+τ−x
+)−1∑m
+t=0 (−1)m−t
+(|V ′1 |
+m
+)(m
+t
+)((t
+2
+)
+τ−x
+)
+(44)
+Proof. Let x′ = τ − x. Since the extended graph G′1 is a
+complete graph, it has |E′1| =
+(|V ′1 |
+2
+)
+edges. From definitions of Y
+and Z, Ω2(m,x) can be modelled by following problem:
+• Randomly select x′ edges from a complete graph with |V ′1 | ver-
+tices and
+(|V ′1 |
+2
+)
+edges, what is the probability of these edges
+exactly covering m vertices?
+Let VX be the vertices covered by an edge subset X ⊆ E′1. By
+the inclusion-exclusion principle, for any vertex subset S ⊆ V ′1
+where |S| = m, the number of possible edge sets X which satisfies
+VX = S is:
+kx′,m =
+∑m
+t=0(−1)m−t
+(m
+t
+)((t
+2
+)
+x′
+)
+Since the number of sets S ⊆ V ′1 of size m is
+(|V ′1 |
+m
+)
+, the total
+number of ways to pick an edge set X which satisfies |X| = x′
+and |VX | = m is:
+Kx′,m =
+∑m
+t=0 (−1)m−t
+(|V ′1 |
+m
+)(m
+t
+)((t
+2
+)
+x′
+)
+Also the number of ways to pick an edge set X ⊆ E′1 is:
+Kx′ =
+∑
+mKx′,m =
+((|V ′1 |
+2
+)
+x′
+)
+Therefore, we have:
+Ω2(m,x, τ) =
+Kx′,m
+Kx′
+=
+Kτ−x,m
+Kτ−x
+So Lemma 2 is proved.
+D. LEMMA 3 AND ITS PROOF
+Lemma 3. Given GBD = ϕ, for any integer r ∈ [0, |V ′1 |], we
+have:
+Ω3(r, ϕ) = Pr [GBD = ϕ | R = r] =
+( r
+r−ϕ
+)
+· (D−1)
+ϕ
+Dr (45)
+where D is the number of all possible branch types, and
+D = |LV | ·
+(|V ′1 |+|LE |−1
+|LE |
+)
+(46)
+Av1 B v2
+Cv3 B v4
+y
+x
+y
+G1
+Bu1 B u2
+Cu3 A u4
+y
+x
+y
+G2
+Figure 30: Graphs for the Proof of Lemma 3
+Proof. From the definition, R = r means there are exactly r
+branches whose vertices or edges are relabelled when transforming
+G1 into G2 during the graph edit process. For simplicity, we
+define these branches as relabelled branches. However, the value
+of R could be larger than the difference between branches in G1
+and G2, i.e., GBD(G1, G2), because it is possible that a subset
+of relabelled branches are just a re-ordering of the original ones,
+which are denoted by B̃G1 .For instance, in the graph edit process of transforming G1 into
+G2, as shown in Figure 30, we need to relabel v1 by label B and v4
+by label A, which means that the number of relabelled branches
+R = 2. However, GBD(G1, G2) = 0 since this graph edit process
+just swaps the branches rooted at v1 and the one rooted at v4, so
+B̃G1 = {B(v1), B(v4)} in this example. To model the probability
+of this situation, we define t = r − ϕ, so t is essentially the size
+of B̃G1 . Here we assume that the occurrence probability of each
+branch type is equal, and denote the number of branch types by
+D. Therefore, Ω3(r) can be abstracted as the ball-pair colouring
+problem as follows.
+• Given two lists of balls A1, A2 of size r, where each ball has
+been randomly coloured by one of the D colours. We define
+the ball pair as two balls where one ball from A1 and another
+from A2, where every ball can only be in one pair. What is the
+probability that there are exactly t ball pairs where the colour
+inside each pair is the same?
+To solve this problem, we take the following steps to count the
+possible ways to colour balls with the conditions above.
+1. The number of ways to form ball pairs is r!;
+2. When pairs are fixed, the number of ways to select t pairs and
+assign t colours to them is
+(r
+t
+)
+Dt;
+3. For the remaining r − t pairs, the number of ways to assign
+them different colours inside each pair is [D(D− 1)]r−t.
+Since there are totally r!·D2r ways to form ball pairs and assign
+colours to all balls, we have:
+Ω3(r, ϕ) =
+r!
+(r
+t
+)
+Dt[D(D− 1)]r−t
+r! · D2r
+=
+( r
+r − ϕ
+)
+·
+(D− 1)ϕ
+Dr
+where the number of possible branch types D is the number of
+ways to assign |LV | + 1 labels (including the virtual label) to
+the vertex in a branch, multiplying the number of ways to assign
+|LE | + 1 labels to |V | − 1 edges in the same branch. This is a
+variant of the classic object colouring problem and we omit the
+detailed proof here.
+E. LEMMA 4 AND ITS PROOF
+Lemma 4. Given GBD = ϕ, for any integer r ∈ [0, |V ′1 |], we
+have:
+Ω4(x, r,m) = Pr[R = r | X = x, Z = m]
+= H
+(
+x+m− r; |V ′1 |,m, x
+)
+(47)
+where H(x;M,K,N) is defined in Equation (12).
+Proof. Let t = x + m − r, so t is the number of vertices
+both relabelled and covered by relabelled edges. Since the order
+of relabelling operations does not affect the graph edit result,
+Ω4(x, r,m) can be modelled by the following problem:
+• First randomly select m vertices from V ′1 and tag these vertices
+as special ones. Then randomly select x vertices from V ′1 . What
+is the probability of exactly selecting t special vertices in the
+second selection?
+Since the number of ways to exactly select t special vertices in the
+second pick is
+(|V ′1 |
+m
+)(m
+t
+)(|V ′1 |−m
+x−t
+)
+, and the number of all ways to
+pick m and x vertices separately from V ′1 is
+(|V ′1 |
+m
+)(|V ′1 |
+x
+)
+, we have:
+Ω4(x, r,m) =
+(|V ′1 |
+m
+)(m
+t
+)(|V ′1 |−m
+x−t
+)
+(|V ′1 |
+m
+)(|V ′1 |
+x
+) =
+(m
+t
+)(|V ′1 |−m
+x−t
+)
+(|V ′1 |
+x
+)
+= H
+(
+x+m− r; |V ′1 |,m, x
+)
+where function H(x;M,K,N) is defined in Equation (12).
+F. GRAPH GENERATING ALGORITHM
+The algorithm for generating the synthetic graphs (i.e., Syn-1
+and Syn-2 data sets) is as follows.
+The algorithm aims to generate a set of graphs G, such that
+for ∀gi, gj ∈ G, the edit distance between gi and gj is known. In
+order to achieve this goal, we first defined a valid modification
+center, then we designed the generation algorithm which consists
+two phases: (1) Generate a random “qualified” graph as a tem-
+plate; (2) Modify the template to generate the graph set G.
+A modification center is a vertex vc in graph g such that
+∀vi, vj ∈ {neighbors of vc}, i 6= j, the edit distance between
+g − e(i, c) and g − e(j, c) is greater than 0, where e(i, c) is the
+edge between vertices vi and vc, and e(j, c) is the edge between
+vertices vj and vc. For any modification center vc, if we randomly
+modify its adjacent edges, the edit distance between the original
+and modified graphs can be simply calculated by comparing the
+edges adjacent to their modification centers in polynomial time.
+However, identifying whether a vertex is a modification center
+is difficult. Therefore, we propose a relatively efficient signature
+that can help us to filter out some special cases that a vertex is
+certainly a modification center. For vertex vc’s neighbor vi, the
+signature is defined as {s0, s1, s2, . . . , sn}, where s0 is a set con-
+tains vi’s label, and other sets sk = {(vj .label, e(i, j).label); ∀vj ∈
+k-hop neighbors of vi}, k > 0. If a vertex is a modification center,
+then its neighbors’ signatures must be pair-wised different. That
+is, if we find a vertex whose neighbors’ signatures are pair-wised
+different, this vertex must be a modification center. If there is no
+such a vertex, we re-generate the graph until success.
+In our settings, the graph should be connected, and have at
+least one modification center of degree at least d, to produce a
+set of graphs among which the edit distance varies from 0 to d.
+To ensure the connectivity of the graph, we force each vertex
+vi is connected to another vertex vj , where i > j. After all
+vertices being connected, we then add remaining edges according
+to the type of the graph. For random graphs, we randomly add
+edges between in-adjacent vertices. For scale-free graphs, we add
+constant number of edges to each vertex vi, where the neighbors
+of vi is picked from {vj ; ∀j < i} with the probability proportional
+to their degrees.
+

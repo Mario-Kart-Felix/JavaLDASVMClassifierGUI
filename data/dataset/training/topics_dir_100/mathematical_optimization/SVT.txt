@@ -1,0 +1,1346 @@
+A Singular Value Thresholding Algorithm for Matrix Completion
+Jian-Feng Cai† Emmanuel J. Candès♯ Zuowei Shen§
+† Temasek Laboratories, National University of Singapore, Singapore 117543
+♯ Applied and Computational Mathematics, Caltech, Pasadena, CA 91125
+§ Department of Mathematics, National University of Singapore, Singapore 117543
+September 2008
+Abstract
+This paper introduces a novel algorithm to approximate the matrix with minimum nuclear
+norm among all matrices obeying a set of convex constraints. This problem may be understood as
+the convex relaxation of a rank minimization problem, and arises in many important applications
+as in the task of recovering a large matrix from a small subset of its entries (the famous Netflix
+problem). Off-the-shelf algorithms such as interior point methods are not directly amenable to
+large problems of this kind with over a million unknown entries.
+This paper develops a simple first-order and easy-to-implement algorithm that is extremely
+efficient at addressing problems in which the optimal solution has low rank. The algorithm is
+iterative and produces a sequence of matrices {𝑿𝑘,𝒀 𝑘} and at each step, mainly performs a
+soft-thresholding operation on the singular values of the matrix 𝒀 𝑘. There are two remarkable
+features making this attractive for low-rank matrix completion problems. The first is that
+the soft-thresholding operation is applied to a sparse matrix; the second is that the rank of
+the iterates {𝑿𝑘} is empirically nondecreasing. Both these facts allow the algorithm to make
+use of very minimal storage space and keep the computational cost of each iteration low. On
+the theoretical side, we provide a convergence analysis showing that the sequence of iterates
+converges. On the practical side, we provide numerical examples in which 1, 000×1, 000 matrices
+are recovered in less than a minute on a modest desktop computer. We also demonstrate that
+our approach is amenable to very large scale problems by recovering matrices of rank about 10
+with nearly a billion unknowns from just about 0.4% of their sampled entries. Our methods are
+connected with the recent literature on linearized Bregman iterations for ℓ1 minimization, and
+we develop a framework in which one can understand these algorithms in terms of well-known
+Lagrange multiplier algorithms.
+Keywords. Nuclear norm minimization, matrix completion, singular value thresholding, La-
+grange dual function, Uzawa’s algorithm and linearized Bregman iteration.
+1 Introduction
+1.1 Motivation
+There is a rapidly growing interest in the recovery of an unknown low-rank or approximately low-
+rank matrix from very limited information. This problem occurs in many areas of engineering and
+1
+applied science such as machine learning [1, 3, 4], control [45] and computer vision, see [52]. As
+a motivating example, consider the problem of recovering a data matrix from a sampling of its
+entries. This routinely comes up whenever one collects partially filled out surveys, and one would
+like to infer the many missing entries. In the area of recommender systems, users submit ratings
+on a subset of entries in a database, and the vendor provides recommendations based on the user’s
+preferences. Because users only rate a few items, one would like to infer their preference for unrated
+items; this is the famous Netflix problem [2]. Recovering a rectangular matrix from a sampling of
+its entries is known as the matrix completion problem. The issue is of course that this problem is
+extraordinarily ill posed since with fewer samples than entries, we have infinitely many completions.
+Therefore, it is apparently impossible to identify which of these candidate solutions is indeed the
+“correct” one without some additional information.
+In many instances, however, the matrix we wish to recover has low rank or approximately low
+rank. For instance, the Netflix data matrix of all user-ratings may be approximately low-rank
+because it is commonly believed that only a few factors contribute to anyone’s taste or preference.
+In computer vision, inferring scene geometry and camera motion from a sequence of images is a well-
+studied problem known as the structure-from-motion problem. This is an ill-conditioned problem
+for objects may be distant with respect to their size, or especially for “missing data” which occur
+because of occlusion or tracking failures. However, when properly stacked and indexed, these images
+form a matrix which has very low rank (e.g. rank 3 under orthography) [23, 52]. Other examples
+of low-rank matrix fitting abound; e.g. in control (system identification), machine learning (multi-
+class learning) and so on. Having said this, the premise that the unknown has (approximately) low
+rank radically changes the problem, making the search for solutions feasible since the lowest-rank
+solution now tends to be the right one.
+In a recent paper [14], Candès and Recht showed that matrix completion is not as ill-posed as
+people thought. Indeed, they proved that most low-rank matrices can be recovered exactly from
+most sets of sampled entries even though these sets have surprisingly small cardinality, and more
+importantly, they proved that this can be done by solving a simple convex optimization problem.
+To state their results, suppose to simplify that the unknown matrix 𝑴 ∈ ℝ𝑛×𝑛 is square, and that
+one has available 𝑚 sampled entries {𝑴𝑖𝑗 : (𝑖, 𝑗) ∈ Ω} where Ω is a random subset of cardinality
+𝑚. Then [14] proves that most matrices 𝑴 of rank 𝑟 can be perfectly recovered by solving the
+optimization problem
+minimize ∥𝑿∥∗
+subject to 𝑋𝑖𝑗 = 𝑀𝑖𝑗 , (𝑖, 𝑗) ∈ Ω, (1.1)
+provided that the number of samples obeys
+𝑚 ≥ 𝐶𝑛6/5𝑟 log 𝑛 (1.2)
+for some positive numerical constant 𝐶.1 In (1.1), the functional ∥𝑿∥∗ is the nuclear norm of the
+matrix 𝑴 , which is the sum of its singular values. The optimization problem (1.1) is convex and
+can be recast as a semidefinite program [31,32]. In some sense, this is the tightest convex relaxation
+of the NP-hard rank minimization problem
+minimize rank(𝑿)
+subject to 𝑋𝑖𝑗 = 𝑀𝑖𝑗 , (𝑖, 𝑗) ∈ Ω, (1.3)
+1Note that an 𝑛× 𝑛 matrix of rank 𝑟 depends upon 𝑟(2𝑛− 𝑟) degrees of freedom.
+2
+since the nuclear ball {𝑿 : ∥𝑿∥∗ ≤ 1} is the convex hull of the set of rank-one matrices with
+spectral norm bounded by one. Another interpretation of Candès and Recht’s result is that under
+suitable conditions, the rank minimization program (1.3) and the convex program (1.1) are formally
+equivalent in the sense that they have exactly the same unique solution.
+1.2 Algorithm outline
+Because minimizing the nuclear norm both provably recovers the lowest-rank matrix subject to
+constraints (see [48] for related results) and gives generally good empirical results in a variety of
+situations, it is understandably of great interest to develop numerical methods for solving (1.1). In
+[14], this optimization problem was solved using one of the most advanced semidefinite programming
+solvers, namely, SDPT3 [50]. This solver and others like SeDuMi are based on interior-point
+methods, and are problematic when the size of the matrix is large because they need to solve huge
+systems of linear equations to compute the Newton direction. In fact, SDPT3 can only handle
+𝑛× 𝑛 matrices with 𝑛 ≤ 100. Presumably, one could resort to iterative solvers such as the method
+of conjugate gradients to solve for the Newton step but this is problematic as well since it is well
+known that the condition number of the Newton system increases rapidly as one gets closer to the
+solution. In addition, none of these general purpose solvers use the fact that the solution may have
+low rank. We refer the reader to [42] for some recent progress on interior-point methods concerning
+some special nuclear norm-minimization problems.
+This paper develops the singular value thresholding algorithm for approximately solving the
+nuclear norm minimization problem (1.1) and by extension, problems of the form
+minimize ∥𝑿∥∗
+subject to 𝒜(𝑿) = 𝒃, (1.4)
+where 𝒜 is a linear operator acting on the space of 𝑛1×𝑛2 matrices and 𝒃 ∈ ℝ𝑚. This algorithm is
+a simple first-order method, and is especially well suited for problems of very large sizes in which
+the solution has low rank. We sketch this algorithm in the special matrix completion setting and
+let 𝒫Ω be the orthogonal projector onto the span of matrices vanishing outside of Ω so that the
+(𝑖, 𝑗)th component of 𝒫Ω(𝑿) is equal to 𝑋𝑖𝑗 if (𝑖, 𝑗) ∈ Ω and zero otherwise. Our problem may be
+expressed as
+minimize ∥𝑿∥∗
+subject to 𝒫Ω(𝑿) = 𝒫Ω(𝑴), (1.5)
+with optimization variable 𝑿 ∈ ℝ𝑛1×𝑛2 . Fix 𝜏 > 0 and a sequence {𝛿𝑘}𝑘≥1 of scalar step sizes.
+Then starting with 𝒀 0 = 0 ∈ ℝ𝑛1×𝑛2 , the algorithm inductively defines{
+𝑿𝑘 = shrink(𝒀 𝑘−1, 𝜏),
+𝒀 𝑘 = 𝒀 𝑘−1 + 𝛿𝑘𝒫Ω(𝑴 −𝑿𝑘)
+(1.6)
+until a stopping criterion is reached. In (1.6), shrink(𝒀 , 𝜏) is a nonlinear function which applies a
+soft-thresholding rule at level 𝜏 to the singular values of the input matrix, see Section 2 for details.
+The key property here is that for large values of 𝜏 , the sequence {𝑿𝑘} converges to a solution which
+very nearly minimizes (1.5). Hence, at each step, one only needs to compute at most one singular
+value decomposition and perform a few elementary matrix additions. Two important remarks are
+in order:
+3
+1. Sparsity. For each 𝑘 ≥ 0, 𝒀 𝑘 vanishes outside of Ω and is, therefore, sparse, a fact which can
+be used to evaluate the shrink function rapidly.
+2. Low-rank property. The matrices 𝑿𝑘 turn out to have low rank, and hence the algorithm has
+minimum storage requirement since we only need to keep principal factors in memory.
+Our numerical experiments demonstrate that the proposed algorithm can solve problems, in
+Matlab, involving matrices of size 30, 000×30, 000 having close to a billion unknowns in 17 minutes
+on a standard desktop computer with a 1.86 GHz CPU (dual core with Matlab’s multithreading
+option enabled) and 3 GB of memory. As a consequence, the singular value thresholding algorithm
+may become a rather powerful computational tool for large scale matrix completion.
+1.3 General formulation
+The singular value thresholding algorithm can be adapted to deal with other types of convex
+constraints. For instance, it may address problems of the form
+minimize ∥𝑿∥∗
+subject to 𝑓𝑖(𝑿) ≤ 0, 𝑖 = 1, . . . ,𝑚, (1.7)
+where each 𝑓𝑖 is a Lipschitz convex function (note that one can handle linear equality constraints by
+considering pairs of affine functionals). In the simpler case where the 𝑓𝑖’s are affine functionals, the
+general algorithm goes through a sequence of iterations which greatly resemble (1.6). This is useful
+because this enables the development of numerical algorithms which are effective for recovering
+matrices from a small subset of sampled entries possibly contaminated with noise.
+1.4 Contents and notations
+The rest of the paper is organized as follows. In Section 2, we derive the singular value threshold-
+ing (SVT) algorithm for the matrix completion problem, and recasts it in terms of a well-known
+Lagrange multiplier algorithm. In Section 3, we extend the SVT algorithm and formulate a gen-
+eral iteration which is applicable to general convex constraints. In Section 4, we establish the
+convergence results for the iterations given in Sections 2 and 3. We demonstrate the performance
+and effectiveness of the algorithm through numerical examples in Section 5, and review additional
+implementation details. Finally, we conclude the paper with a short discussion in Section 6.
+Before continuing, we provide here a brief summary of the notations used throughout the
+paper. Matrices are bold capital, vectors are bold lowercase and scalars or entries are not bold.
+For instance, 𝑿 is a matrix and 𝑋𝑖𝑗 its (𝑖, 𝑗)th entry. Likewise, 𝒙 is a vector and 𝑥𝑖 its 𝑖th
+component. The nuclear norm of a matrix is denoted by ∥𝑿∥∗, the Frobenius norm by ∥𝑿∥𝐹
+and the spectral norm by ∥𝑿∥2; note that these are respectively the 1-norm, the 2-norm and the
+sup-norm of the vector of singular values. The adjoint of a matrix 𝑿 is 𝑿∗ and similarly for
+vectors. The notation diag(𝒙), where 𝒙 is a vector, stands for the diagonal matrix with {𝑥𝑖} as
+diagonal elements. We denote by ⟨𝑿,𝒀 ⟩ = trace(𝑿∗𝒀 ) the standard inner product between two
+matrices (∥𝑿∥2𝐹 = ⟨𝑿,𝑿⟩). The Cauchy-Schwarz inequality gives ⟨𝑿,𝒀 ⟩ ≤ ∥𝑿∥𝐹 ∥𝒀 ∥𝐹 and it is
+well known that we also have ⟨𝑿,𝒀 ⟩ ≤ ∥𝑿∥∗∥𝒀 ∥2 (the spectral and nuclear norms are dual from
+one another), see e.g. [14, 48].
+4
+2 The Singular Value Thresholding Algorithm
+This section introduces the singular value thresholding algorithm and discusses some of its ba-
+sic properties. We begin with the definition of a key building block, namely, the singular value
+thresholding operator.
+2.1 The singular value shrinkage operator
+Consider the singular value decomposition (SVD) of a matrix 𝑿 ∈ ℝ𝑛1×𝑛2 of rank 𝑟
+𝑿 = 𝑼Σ𝑽 ∗, Σ = diag({𝜎𝑖}1≤𝑖≤𝑟), (2.1)
+where 𝑼 and 𝑽 are respectively 𝑛1 × 𝑟 and 𝑛2 × 𝑟 matrices with orthonormal columns, and the
+singular values 𝜎𝑖 are positive (unless specified otherwise, we will always assume that the SVD of
+a matrix is given in the reduced form above). For each 𝜏 ≥ 0, we introduce the soft-thresholding
+operator 𝒟𝜏 defined as follows:
+𝒟𝜏 (𝑿) := 𝑼𝒟𝜏 (Σ)𝑽 ∗, 𝒟𝜏 (Σ) = diag({𝜎𝑖 − 𝜏)+}), (2.2)
+where 𝑡+ is the positive part of 𝑡, namely, 𝑡+ = max(0, 𝑡). In words, this operator simply applies a
+soft-thresholding rule to the singular values of 𝑿, effectively shrinking these towards zero. This is
+the reason why we will also refer to this transformation as the singular value shrinkage operator.
+Even though the SVD may not be unique, it is easy to see that the singular value shrinkage operator
+is well defined and we do not elaborate further on this issue. In some sense, this shrinkage operator
+is a straightforward extension of the soft-thresholding rule for scalars and vectors. In particular,
+note that if many of the singular values of 𝑿 are below the threshold 𝜏 , the rank of 𝒟𝜏 (𝑿) may
+be considerably lower than that of 𝑿, just like the soft-thresholding rule applied to vectors leads
+to sparser outputs whenever some entries of the input are below threshold.
+The singular value thresholding operator is the proximity operator associated with the nuclear
+norm. Details about the proximity operator can be found in e.g. [37].
+Theorem 2.1 For each 𝜏 ≥ 0 and 𝒀 ∈ ℝ𝑛1×𝑛2, the singular value shrinkage operator (2.2) obeys
+𝒟𝜏 (𝒀 ) = argmin
+𝑿
+{
+1
+2
+∥𝑿 − 𝒀 ∥2𝐹 + 𝜏∥𝑿∥∗
+}
+. (2.3)
+2 Proof. Since the function ℎ0(𝑿) := 𝜏∥𝑿∥∗ + 12∥𝑿 −𝒀 ∥2𝐹 is strictly convex, it is easy to see that
+there exists a unique minimizer, and we thus need to prove that it is equal to 𝒟𝜏 (𝒀 ). To do this,
+recall the definition of a subgradient of a convex function 𝑓 : ℝ𝑛1×𝑛2 → ℝ. We say that 𝒁 is a
+subgradient of 𝑓 at 𝑿0, denoted 𝒁 ∈ ∂𝑓(𝑿0), if
+𝑓(𝑿) ≥ 𝑓(𝑿0) + ⟨𝒁,𝑿 −𝑿0⟩ (2.4)
+for all 𝑿. Now ?̂? minimizes ℎ0 if and only if 0 is a subgradient of the functional ℎ0 at the point
+?̂?, i.e.
+0 ∈ ?̂? − 𝒀 + 𝜏∂∥?̂?∥∗, (2.5)
+2One reviewer pointed out that a similar result had been mentioned in a talk given by Donald Goldfarb at the
+Foundations of Computational Mathematics conference which took place in Hong Kong in June 2008.
+5
+where ∂∥?̂?∥∗ is the set of subgradients of the nuclear norm. Let 𝑿 ∈ ℝ𝑛1×𝑛2 be an arbitrary
+matrix and 𝑼Σ𝑽 ∗ be its SVD. It is known [14,39,55] that
+∂∥𝑿∥∗ =
+{
+𝑼𝑽 ∗ +𝑾 : 𝑾 ∈ ℝ𝑛1×𝑛2 , 𝑼∗𝑾 = 0, 𝑾𝑽 = 0, ∥𝑾 ∥2 ≤ 1
+}
+. (2.6)
+Set ?̂? := 𝒟𝜏 (𝒀 ) for short. In order to show that ?̂? obeys (2.5), decompose the SVD of 𝒀 as
+𝒀 = 𝑼0Σ0𝑽
+∗
+0 +𝑼1Σ1𝑽
+∗
+1 ,
+where 𝑼0, 𝑽0 (resp. 𝑼1, 𝑽1) are the singular vectors associated with singular values greater than 𝜏
+(resp. smaller than or equal to 𝜏). With these notations, we have
+?̂? = 𝑼0(Σ0 − 𝜏𝑰)𝑽 ∗0
+and, therefore,
+𝒀 − ?̂? = 𝜏(𝑼0𝑽 ∗0 +𝑾 ), 𝑾 = 𝜏−1𝑼1Σ1𝑽 ∗1 .
+By definition, 𝑼∗0𝑾 = 0, 𝑾𝑽0 = 0 and since the diagonal elements of Σ1 have magnitudes
+bounded by 𝜏 , we also have ∥𝑾 ∥2 ≤ 1. Hence 𝒀 − ?̂? ∈ 𝜏∂∥?̂?∥∗, which concludes the proof.
+2.2 Shrinkage iterations
+We are now in the position to introduce the singular value thresholding algorithm. Fix 𝜏 > 0 and
+a sequence {𝛿𝑘} of positive step sizes. Starting with 𝒀0, inductively define for 𝑘 = 1, 2, . . .,{
+𝑿𝑘 = 𝒟𝜏 (𝒀 𝑘−1),
+𝒀 𝑘 = 𝒀 𝑘−1 + 𝛿𝑘𝒫Ω(𝑴 −𝑿𝑘)
+(2.7)
+until a stopping criterion is reached (we postpone the discussion this stopping criterion and of the
+choice of step sizes). This shrinkage iteration is very simple to implement. At each step, we only
+need to compute an SVD and perform elementary matrix operations. With the help of a standard
+numerical linear algebra package, the whole algorithm can be coded in just a few lines. As we
+will see later, the iteration (2.7) is the linearized Bregman iteration, which is a special instance of
+Uzawa’s algorithm.
+Before addressing further computational issues, we would like to make explicit the relationship
+between this iteration and the original problem (1.1). In Section 4, we will show that the sequence
+{𝑿𝑘} converges to the unique solution of an optimization problem closely related to (1.1), namely,
+minimize 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹
+subject to 𝒫Ω(𝑿) = 𝒫Ω(𝑴). (2.8)
+Furthermore, it is intuitive that the solution to this modified problem converges to that of (1.5) as
+𝜏 → ∞ as shown in Section 3. Thus by selecting a large value of the parameter 𝜏 , the sequence of
+iterates converges to a matrix which nearly minimizes (1.1).
+As mentioned earlier, there are two crucial properties which make this algorithm ideally suited
+for matrix completion.
+6
+∙ Low-rank property. A remarkable empirical fact is that the matrices in the sequence {𝑿𝑘}
+have low rank (provided, of course, that the solution to (2.8) has low rank). We use the word
+“empirical” because all of our numerical experiments have produced low-rank sequences but
+we cannot rigorously prove that this is true in general. The reason for this phenomenon is,
+however, simple: because we are interested in large values of 𝜏 (as to better approximate the
+solution to (1.1)), the thresholding step happens to ‘kill’ most of the small singular values
+and produces a low-rank output. In fact, our numerical results show that the rank of 𝑿𝑘 is
+nondecreasing with 𝑘, and the maximum rank is reached in the last steps of the algorithm,
+see Section 5.
+Thus, when the rank of the solution is substantially smaller than either dimension of the
+matrix, the storage requirement is low since we could store each 𝑿𝒌 in its SVD form (note
+that we only need to keep the current iterate and may discard earlier values).
+∙ Sparsity. Another important property of the SVT algorithm is that the iteration matrix 𝒀 𝑘
+is sparse. Since 𝒀 0 = 0, we have by induction that 𝒀 𝑘 vanishes outside of Ω. The fewer
+entries available, the sparser 𝒀 𝑘. Because the sparsity pattern Ω is fixed throughout, one can
+then apply sparse matrix techniques to save storage. Also, if ∣Ω∣ = 𝑚, the computational cost
+of updating 𝒀 𝑘 is of order 𝑚. Moreover, we can call subroutines supporting sparse matrix
+computations, which can further reduce computational costs.
+One such subroutine is the SVD. However, note that we do not need to compute the entire
+SVD of 𝒀 𝑘 to apply the singular value thresholding operator. Only the part corresponding
+to singular values greater than 𝜏 is needed. Hence, a good strategy is to apply the iterative
+Lanczos algorithm to compute the first few singular values and singular vectors. Because
+𝒀 𝑘 is sparse, 𝒀 𝑘 can be applied to arbitrary vectors rapidly, and this procedure offers a
+considerable speedup over naive methods.
+2.3 Relation with other works
+Our algorithm is inspired by recent work in the area of ℓ1 minimization, and especially by the work
+on linearized Bregman iterations for compressed sensing, see [10–12,25,47,57] for linearized Bregman
+iterations and [15–18, 28] for some information about the field of compressed sensing. In this line
+of work, linearized Bregman iterations are used to find the solution to an underdetermined system
+of linear equations with minimum ℓ1 norm.In fact, Theorem 2.1 asserts that the singular value
+thresholding algorithm can be formulated as a linearized Bregman iteration. Bregman iterations
+were first introduced in [46] as a convenient tool for solving computational problems in the imaging
+sciences, and a later paper [57] showed that they were useful for solving ℓ1-norm minimization
+problems in the area of compressed sensing. Linearized Bregman iterations were proposed in [25]
+to improve performance of plain Bregman iterations, see also [57]. Additional details together
+with a technique for improving the speed of convergence called kicking are described in [47]. On
+the practical side, the paper [12] applied Bregman iterations to solve a deblurring problem while
+on the theoretical side, the references [10, 11] gave a rigorous analysis of the convergence of such
+iterations. New developments keep on coming out at a rapid pace and recently, [34] introduced a
+new iteration, the split Bregman iteration, to extend Bregman-type iterations (such as linearized
+Bregman iterations) to problems involving the minimization of ℓ1-like functionals such as total-
+variation norms, Besov norms, and so forth.
+7
+When applied to ℓ1-minimization problems, linearized Bregman iterations are sequences of
+soft-thresholding rules operating on vectors. Iterative soft-thresholding algorithms in connection
+with ℓ1 or total-variation minimization have quite a bit of history in signal and image processing
+and we would like to mention the works [13, 41] for total-variation minimization, [26, 27, 33] for
+ℓ1 minimization, and [5, 8, 9, 21, 22, 29, 30, 49] for some recent applications in the area of image
+inpainting and image restoration. Just as iterative soft-thresholding methods are designed to find
+sparse solutions, our iterative singular value thresholding scheme is designed to find a sparse vector
+of singular values. In classical problems arising in the areas of compressed sensing, and signal or
+image processing, the sparsity is expressed in a known transformed domain and soft-thresholding is
+applied to transformed coefficients. In contrast, the shrinkage operator𝒟𝜏 is adaptive. The SVT not
+only discovers a sparse singular vector but also the bases in which we have a sparse representation.
+In this sense, the SVT algorithm is an extension of earlier iterative soft-thresholding schemes.
+Finally, we would like to contrast the SVT iteration (2.7) with the popular iterative soft-
+thresholding algorithm used in many papers in imaging processing and perhaps best known under
+the name of Proximal Forward-Backward Splitting method (PFBS), see [9, 24, 26, 33, 35, 53, 54] for
+example. The constrained minimization problem (1.5) may be relaxed into
+minimize 𝜆∥𝑿∥∗ + 1
+2
+∥𝒫Ω(𝑿)− 𝒫Ω(𝑴)∥2𝐹 (2.9)
+for some 𝜆 > 0. Theorem 2.1 asserts that 𝒟𝜆 is the proximity operator of 𝜆∥𝑿∥∗ and Proposition
+3.1(iii) in [24] gives that the solution to this unconstrained problem is characterized by the fixed
+point equation 𝑿 = 𝒟𝜆𝛿(𝑿 + 𝛿𝑃Ω(𝑴 − 𝑿)) for each 𝛿 > 0. One can then apply a simplified
+version of the PFBS method (see (3.6) in [24]) to obtain iterations of the form
+𝑿𝑘 = 𝒟𝜆𝛿𝑘−1(𝑿𝑘−1 + 𝛿𝑘−1𝑃Ω(𝑴 −𝑿𝑘−1)).
+Introducing an intermediate matrix 𝒀 𝑘, this algorithm may be expressed as{
+𝑿𝑘 = 𝒟𝜆𝛿𝑘−1(𝒀 𝑘−1),
+𝒀 𝑘 = 𝑿𝑘 + 𝛿𝑘𝑃Ω(𝑴 −𝑿𝑘).
+(2.10)
+The difference with (2.7) may seem subtle at first—replacing 𝑿𝑘 in (2.10) with 𝒀 𝑘−1 and setting
+𝛿𝑘 = 𝛿 gives (2.7) with 𝜏 = 𝜆𝛿—but has enormous consequences as this gives entirely different
+algorithms. First, they have different limits: while (2.7) converges to the solution of the constrained
+minimization (2.8), (2.10) converges to the solution of (2.9) provided that the sequence of step sizes
+is appropriately selected. Second, selecting a large 𝜆 (or a large value of 𝜏 = 𝜆𝛿) in (2.10) gives a
+low-rank sequence of iterates and a limit with small nuclear norm. The limit, however, does not fit
+the data and this is why one has to choose a small or moderate value of 𝜆 (or of 𝜏 = 𝜆𝛿). However,
+when 𝜆 is not sufficiently large, the 𝑿𝑘’s may not have low rank even though the solution has
+low rank (and one may need to compute many singular vectors), and thus applying the shrinkage
+operation accurately to 𝒀 𝑘 may be computationally very expensive. Moreover, the limit does not
+necessary have a small nuclear norm. These are some of the reasons why (2.10) does not seems
+to be very suitable for very large-scale matrix completion problems (in cases where computing the
+SVD is prohibitive). Since the original submission of this paper, however, we note that several
+papers proposed some working implementations [43,51].
+8
+2.4 Interpretation as a Lagrange multiplier method
+In this section, we recast the SVT algorithm as a type of Lagrange multiplier algorithm known as
+Uzawa’s algorithm. An important consequence is that this will allow us to extend the SVT algorithm
+to other problems involving the minimization of the nuclear norm under convex constraints, see
+Section 3. Further, another contribution of this paper is that this framework actually recasts linear
+Bregman iterations as a very special form of Uzawa’s algorithm, hence providing fresh and clear
+insights about these iterations.
+In what follows, we set 𝑓𝜏 (𝑿) = 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹 for some fixed 𝜏 > 0 and recall that we wish
+to solve (2.8)
+minimize 𝑓𝜏 (𝑿)
+subject to 𝒫Ω(𝑿) = 𝒫Ω(𝑴).
+The Lagrangian for this problem is given by
+ℒ(𝑿,𝒀 ) = 𝑓𝜏 (𝑿) + ⟨𝒀 ,𝒫Ω(𝑴 −𝑿)⟩,
+where 𝒀 ∈ ℝ𝑛1×𝑛2 . Strong duality holds and 𝑿★ and 𝒀 ★ are primal-dual optimal if (𝑿★,𝒀 ★) is a
+saddlepoint of the Lagrangian ℒ(𝑿,𝒀 ), i.e. a pair obeying
+sup
+𝒀
+inf
+𝑿
+ℒ(𝑿,𝒀 ) = ℒ(𝑿★,𝒀 ★) = inf
+𝑿
+sup
+𝒀
+ℒ(𝑿,𝒀 ). (2.11)
+The function 𝑔0(𝒀 ) = inf𝑿 ℒ(𝑿,𝒀 ) is called the dual function. Here, 𝑔0 is continuously differ-
+entiable and has a gradient which is Lipschitz with Lipschitz constant at most one, as this is a
+consequence of well-known results concerning conjugate functions. Uzawa’s algorithm approaches
+the problem of finding a saddlepoint with an iterative procedure. From 𝒀0 = 0, say, inductively
+define {
+ℒ(𝑿𝑘,𝒀 𝑘−1) = min𝑿 ℒ(𝑿,𝒀 𝑘−1)
+𝒀 𝑘 = 𝒀 𝑘−1 + 𝛿𝑘𝒫Ω(𝑴 −𝑿𝑘),
+(2.12)
+where {𝛿𝑘}𝑘≥1 is a sequence of positive step sizes. Uzawa’s algorithm is, in fact, a subgradient
+method applied to the dual problem, where each step moves the current iterate in the direction of
+the gradient or of a subgradient. Indeed, observe that the gradient of 𝑔0(𝒀 ) is given by
+∂𝒀 𝑔0(𝒀 ) = ∂𝒀 ℒ(?̃?,𝒀 ) = 𝒫Ω(𝑴 − ?̃?), (2.13)
+where ?̃? is the minimizer of the Lagrangian for that value of 𝒀 so that a gradient descent update
+for 𝒀 is of the form
+𝒀 𝑘 = 𝒀 𝑘−1 + 𝛿𝑘∂𝒀 𝑔0(𝒀 𝑘−1) = 𝒀 𝑘−1 + 𝛿𝑘𝒫Ω(𝑴 −𝑿𝑘).
+It remains to compute the minimizer of the Lagrangian (2.12), and note that
+argmin 𝑓𝜏 (𝑿) + ⟨𝒀 ,𝒫Ω(𝑴 −𝑿)⟩ = argmin 𝜏∥𝑿∥∗ + 1
+2
+∥𝑿 − 𝒫Ω𝒀 ∥2𝐹 . (2.14)
+However, we know that the minimizer is given by 𝒟𝜏 (𝒫Ω(𝒀 )) and since 𝒀 𝑘 = 𝒫Ω(𝒀 𝑘) for all 𝑘 ≥ 0,
+Uzawa’s algorithm takes the form{
+𝑿𝑘 = 𝒟𝜏 (𝒀 𝑘−1)
+𝒀 𝑘 = 𝒀 𝑘−1 + 𝛿𝑘𝒫Ω(𝑴 −𝑿𝑘),
+9
+which is exactly the update (2.7). This point of view brings to bear many different mathemat-
+ical tools for proving the convergence of the singular value thresholding iterations. For an early
+use of Uzawa’s algorithm minimizing an ℓ1-like functional, the total-variation norm, under linear
+inequality constraints, see [13].
+3 General Formulation
+This section presents a general formulation of the SVT algorithm for approximately minimizing the
+nuclear norm of a matrix under convex constraints.
+3.1 Linear equality constraints
+Set the objective functional 𝑓𝜏 (𝑿) = 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹 for some fixed 𝜏 > 0, and consider the
+following optimization problem:
+minimize 𝑓𝜏 (𝑿)
+subject to 𝒜(𝑿) = 𝒃, (3.1)
+where 𝒜 is a linear transformation mapping 𝑛1×𝑛2 matrices into ℝ𝑚 (𝒜∗ is the adjoint of 𝒜). This
+more general formulation is considered in [14] and [48] as an extension of the matrix completion
+problem. Then the Lagrangian for this problem is of the form
+ℒ(𝑿,𝒚) = 𝑓𝜏 (𝑿) + ⟨𝒚, 𝒃−𝒜(𝑿)⟩, (3.2)
+where 𝑿 ∈ ℝ𝑛1×𝑛2 and 𝒚 ∈ ℝ𝑚, and starting with 𝒚0 = 0, Uzawa’s iteration is given by{
+𝑿𝑘 = 𝒟𝜏 (𝒜∗(𝒚𝑘−1)),
+𝒚𝑘 = 𝒚𝑘−1 + 𝛿𝑘(𝒃−𝒜(𝑿𝑘)).
+(3.3)
+The iteration (3.3) is of course the same as (2.7) in the case where 𝒜 is a sampling operator
+extracting 𝑚 entries with indices in Ω out of an 𝑛1 × 𝑛2 matrix. To verify this claim, observe
+that in this situation, 𝒜∗𝒜 = 𝒫Ω, and let 𝑴 be any matrix obeying 𝒜(𝑴) = 𝒃. Then defining
+𝒀 𝑘 = 𝒜∗(𝒚𝑘) and substituting this expression in (3.3) gives (2.7).
+3.2 General convex constraints
+One can also adapt the algorithm to handle general convex constraints. Suppose we wish to
+minimize 𝑓𝜏 (𝑿) defined as before over a convex set 𝑿 ∈ 𝒞. To simplify, we will assume that this
+convex set is given by
+𝒞 = {𝑿 : 𝑓𝑖(𝑿) ≤ 0, ∀𝑖 = 1, . . . ,𝑚},
+where the 𝑓𝑖’s are convex functionals (note that one can handle linear equality constraints by
+considering pairs of affine functionals). The problem of interest is then of the form
+minimize 𝑓𝜏 (𝑿)
+subject to 𝑓𝑖(𝑿) ≤ 0, 𝑖 = 1, . . . ,𝑚. (3.4)
+Just as before, it is intuitive that as 𝜏 → ∞, the solution to this problem converges to a minimizer
+of the nuclear norm under the same constraints (1.7) as shown in Theorem 3.1 at the end of this
+section.
+10
+Put ℱ(𝑿) := (𝑓1(𝑿), . . . , 𝑓𝑚(𝑿)) for short. Then the Lagrangian for (3.4) is equal to
+ℒ(𝑿,𝒚) = 𝑓𝜏 (𝑿) + ⟨𝒚,ℱ(𝑿)⟩,
+where 𝑿 ∈ ℝ𝑛1×𝑛2 and 𝒚 ∈ ℝ𝑚 is now a vector with nonnegative components denoted, as usual,
+by 𝒚 ≥ 0. One can apply Uzawa’s method just as before with the only modification that we will
+use a subgradient method with projection to maximize the dual function since we need to make
+sure that the successive updates 𝒚𝑘 belong to the nonnegative orthant. This gives{
+𝑿𝑘 = argmin {𝑓𝜏 (𝑿) + ⟨𝒚𝑘−1,ℱ(𝑿)⟩},
+𝒚𝑘 = [𝒚𝑘−1 + 𝛿𝑘ℱ(𝑿𝑘)]+.
+(3.5)
+Above, 𝒙+ is of course the vector with entries equal to max(𝑥𝑖, 0). When ℱ is an affine mapping
+of the form 𝒃−𝒜(𝑿) so that one solves
+minimize 𝑓𝜏 (𝑿)
+subject to 𝒜(𝑿) ≥ 𝒃,
+this simplifies to {
+𝑿𝑘 = 𝒟𝜏 (𝒜∗(𝒚𝑘−1)),
+𝒚𝑘 = [𝒚𝑘−1 + 𝛿𝑘(𝒃−𝒜(𝑿𝑘))]+,
+(3.6)
+and thus the extension to linear inequality constraints is straightforward.
+3.3 Examples
+Suppose we have available linear measurements 𝒃 about a matrix 𝑴 , which take the form
+𝒃 = 𝒜(𝑴) + 𝒛 (3.7)
+where 𝒛 ∈ ℝ𝑚 is a noise vector. Then under these circumstances, one might want to find the matrix
+which minimizes the nuclear norm among all matrices which are consistent with the data 𝒃.
+3.3.1 Linear inequality constraints
+A possible approach to this problem consists in solving
+minimize ∥𝑿∥∗
+subject to ∣vec(𝒜∗(𝒓))∣ ≤ vec(𝑬), 𝒓 := 𝒃−𝒜(𝑿), (3.8)
+where 𝑬 is an array of tolerances, which is adjusted to fit the noise statistics. Above, vec(𝑨) ≤
+vec(𝑩), for any two matrices 𝑨 and 𝑩, means componentwise inequalities; that is, 𝐴𝑖𝑗 ≤ 𝐵𝑖𝑗 for all
+indices 𝑖, 𝑗. We use this notation as not to confuse the reader with the positive semidefinite ordering.
+In the case of the matrix completion problem where 𝒜 extracts sampled entries indexed by Ω, one
+can always see the data vector as the sampled entries of some matrix 𝑩 obeying 𝒫Ω(𝑩) = 𝒜∗(𝒃);
+the constraint is then natural for it may be expressed as
+∣𝐵𝑖𝑗 −𝑋𝑖𝑗 ∣ ≤ 𝐸𝑖𝑗 , (𝑖, 𝑗) ∈ Ω,
+11
+If 𝒛 is white noise with standard deviation 𝜎, one may want to use a multiple of 𝜎 for 𝐸𝑖𝑗 . In
+words, we are looking for a matrix with minimum nuclear norm under the constraint that all of its
+sampled entries do not deviate too much from what has been observed.
+Let 𝒀+ ∈ ℝ𝑛1×𝑛2 (resp. 𝒀− ∈ ℝ𝑛1×𝑛2) be the Lagrange multiplier associated with the compo-
+nentwise linear inequality constraints vec(𝒜∗(𝒓)) ≤ vec(𝑬) (resp. −vec(𝒜∗(𝒓)) ≤ vec(𝑬)). Then
+starting with 𝒀 0± = 0, the SVT iteration for this problem is of the form{
+𝑿𝑘 = 𝒟𝜏 (𝒜∗𝒜(𝒀 𝑘−1+ − 𝒀 𝑘−1− )),
+𝒀 𝑘± = [𝒀
+𝑘−1
+± + 𝛿𝑘(±𝒜∗(𝒓𝑘)−𝑬)]+, 𝒓𝑘 = 𝒃𝑘 −𝒜(𝑿𝑘),
+(3.9)
+where again [⋅]+ is applied componentwise (in the matrix completion problem, 𝒜∗𝒜 = 𝒫Ω).
+3.3.2 Quadratic constraints
+Another natural solution is to solve the quadratically constrained nuclear-norm minimization prob-
+lem
+minimize ∥𝑿∥∗
+subject to ∥𝒃−𝒜(𝑿)∥ ≤ 𝜖. (3.10)
+When 𝑧 is a stochastic error term, 𝜖 would typically be adjusted to depend on the noise power.
+To see how we can adapt our ideas in this setting, we work with the approximate objective
+functional 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹 as before, and rewrite our program in the conic form
+minimize 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹
+subject to
+[
+𝒃−𝒜(𝑿)
+𝜖
+]
+∈ 𝒦, (3.11)
+where 𝒦 is the second-order cone
+𝒦 = {(𝒙, 𝑡) ∈ ℝ𝑚+1 : ∥𝒙∥ ≤ 𝑡}.
+This cone is self-dual. The Lagrangian is then given by
+ℒ(𝑿;𝒚, 𝑠) = 𝜏∥𝑿∥∗ + 1
+2
+∥𝑿∥2𝐹 + ⟨𝒚, 𝒃−𝒜(𝑿)⟩ − 𝑠𝜖,
+where (𝒚, 𝑠) ∈ ℝ𝑚+1 ∈ 𝒦∗ = 𝒦; that is, ∥𝒚∥ ≤ 𝑠. Letting 𝑃𝒦 be the orthogonal projection onto 𝒦,
+this leads to the simple iteration⎧⎨⎩
+𝑿𝑘 = 𝒟𝜏 (𝒜∗(𝒚𝑘)),[
+𝒚𝑘
+𝑠𝑘
+]
+= 𝑃𝒦
+([
+𝒚𝑘−1
+𝑠𝑘−1
+]
++ 𝛿𝑘
+[
+𝒃−𝒜(𝑿𝑘)
+−𝜖
+])
+.
+(3.12)
+This is an explicit algorithm since the projection is given by
+𝑃𝒦 : (𝑥, 𝑡) 7→
+⎧⎨⎩
+(𝑥, 𝑡), ∥𝑥∥ ≤ 𝑡,
+∥𝑥∥+𝑡
+2∥𝑥∥ (𝑥, ∥𝑥∥), −∥𝑥∥ ≤ 𝑡 ≤ ∥𝑥∥,
+(0, 0), 𝑡 ≤ −∥𝑥∥.
+12
+3.3.3 General conic constraints
+Clearly, one could apply this methodology with general cone constraints of the form ℱ(𝑿)+𝒅 ∈ 𝒦,
+where 𝒦 is some closed and pointed convex cone. Inspired by the work on the Dantzig selector [19],
+which was originally developed for estimating sparse parameter vectors from noisy data, another
+approach is to set a constraint on the spectral norm of 𝒜∗(𝒓)—recall that 𝒓 is the residual vector
+𝒃−𝒜(𝑿)—and solve
+minimize ∥𝑿∥∗
+subject to ∥𝒜∗(𝒓)∥ ≤ 𝜖. (3.13)
+Developing our approach in this setting is straightforward and involves projections of the dual
+variable onto the positive semi-definite cone.
+3.4 When the proximal problem gets close
+We now show that minimizing the proximal objective 𝑓𝜏 (𝑿) = 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹 is the same as
+minimizing the nuclear norm in the limit of large 𝜏 ’s. The theorem below is general and covers the
+special case of linear equality constraints as in (2.8).
+Theorem 3.1 Let 𝑿★𝜏 be the solution to (3.4) and 𝑿∞ be the minimum Frobenius-norm solution
+to (1.7) defined as
+𝑿∞ := argmin
+𝑿
+{∥𝑿∥2𝐹 : 𝑿 is a solution of (1.7)}. (3.14)
+Assume that the 𝑓𝑖(𝑿)’s, 1 ≤ 𝑖 ≤ 𝑚, are convex and lower semi-continuous. Then
+lim
+𝜏→∞ ∥𝑿
+★
+𝜏 −𝑿∞∥𝐹 = 0. (3.15)
+Proof. It follows from the definition of 𝑿★𝜏 and 𝑿∞ that
+∥𝑿★𝜏 ∥∗ +
+1
+2𝜏
+∥𝑿★𝜏 ∥2𝐹 ≤ ∥𝑿∞∥∗ +
+1
+2𝜏
+∥𝑿∞∥2𝐹 , and ∥𝑿∞∥∗ ≤ ∥𝑿★𝜏 ∥∗. (3.16)
+Summing these two inequalities gives
+∥𝑿★𝜏 ∥2𝐹 ≤ ∥𝑿∞∥2𝐹 , (3.17)
+which implies that ∥𝑿★𝜏 ∥2𝐹 is bounded uniformly in 𝜏 . Thus, we would prove the theorem if we
+could establish that any convergent subsequence {𝑿★𝜏𝑘}𝑘≥1 must converge to 𝑿∞.
+Consider an arbitrary converging subsequence {𝑿★𝜏𝑘} and set 𝑿𝑐 := lim𝑘→∞𝑿★𝜏𝑘 . Since for
+each 1 ≤ 𝑖 ≤ 𝑚, 𝑓𝑖(𝑿★𝜏𝑘) ≤ 0 and 𝑓𝑖 is lower semi-continuous, 𝑿𝑐 obeys
+𝑓𝑖(𝑿𝑐) ≤ 0, 𝑖 = 1, . . . ,𝑚. (3.18)
+Furthermore, since ∥𝑿★𝜏 ∥2𝐹 is bounded, (3.16) yields
+lim sup
+𝜏→∞
+∥𝑿★𝜏 ∥∗ ≤ ∥𝑿∞∥∗, ∥𝑿∞∥∗ ≤ lim inf𝜏→∞ ∥𝑿
+★
+𝜏 ∥∗.
+An immediate consequence is lim𝜏→∞ ∥𝑿★𝜏 ∥∗ = ∥𝑿∞∥∗ and, therefore, ∥𝑿𝑐∥∗ = ∥𝑿∞∥∗. This
+shows that 𝑿𝑐 is a solution to (1.1). Now it follows from the definition of 𝑿∞ that ∥𝑿𝑐∥𝐹 ≥
+∥𝑿∞∥𝐹 , while we also have ∥𝑿𝑐∥𝐹 ≤ ∥𝑿∞∥𝐹 because of (3.17). We conclude that ∥𝑿𝑐∥𝐹 =
+∥𝑿∞∥𝐹 and thus 𝑿𝑐 = 𝑿∞ since 𝑿∞ is unique.
+13
+4 Convergence Analysis
+This section establishes the convergence of the SVT iterations. We begin with the simpler proof
+of the convergence of (2.7) in the special case of the matrix completion problem, and then present
+the argument for the more general constraints (3.5). We hope that this progression will make the
+second and more general proof more transparent.
+4.1 Convergence for matrix completion
+We begin by recording a lemma which establishes the strong convexity of the objective 𝑓𝜏 .
+Lemma 4.1 Let 𝒁 ∈ ∂𝑓𝜏 (𝑿) and 𝒁 ′ ∈ ∂𝑓𝜏 (𝑿 ′). Then
+⟨𝒁 −𝒁 ′,𝑿 −𝑿 ′⟩ ≥ ∥𝑿 −𝑿 ′∥2𝐹 . (4.1)
+Proof. An element 𝒁 of ∂𝑓𝜏 (𝑿) is of the form 𝒁 = 𝜏𝒁0 +𝑿, where 𝒁0 ∈ ∂∥𝑿∥∗, and similarly
+for 𝒁 ′. This gives
+⟨𝒁 −𝒁 ′,𝑿 −𝑿 ′⟩ = 𝜏 ⟨𝒁0 −𝒁 ′0,𝑿 −𝑿 ′⟩+ ∥𝑿 −𝑿 ′∥2𝐹
+and it thus suffices to show that the first term of the right-hand side is nonnegative. From (2.6),
+we have that any subgradient of the nuclear norm at 𝑿 obeys ∥𝒁0∥2 ≤ 1 and ⟨𝒁0,𝑿⟩ = ∥𝑿∥∗. In
+particular, this gives
+∣⟨𝒁0,𝑿 ′⟩∣ ≤ ∥𝒁0∥2∥𝑿 ′∥∗ ≤ ∥𝑿 ′∥∗, ∣⟨𝒁 ′0,𝑿⟩∣ ≤ ∥𝒁 ′0∥2∥𝑿∥∗ ≤ ∥𝑿∥∗.
+Whence,
+⟨𝒁0 −𝒁 ′0,𝑿 −𝑿 ′⟩ = ⟨𝒁0,𝑿⟩+ ⟨𝒁 ′0,𝑿 ′⟩ − ⟨𝒁0,𝑿 ′⟩ − ⟨𝒁 ′0,𝑿⟩
+= ∥𝑿∥∗ + ∥𝑿 ′∥∗ − ⟨𝒁0,𝑿 ′⟩ − ⟨𝒁 ′0,𝑿⟩ ≥ 0,
+which proves the lemma.
+This lemma is key in showing that the SVT algorithm (2.7) converges.
+Theorem 4.2 Suppose that the sequence of step sizes obeys 0 < inf 𝛿𝑘 ≤ sup 𝛿𝑘 < 2/∥𝒜∥2. Then
+the sequence {𝑿𝑘} obtained via (3.3) converges to the unique solution to (3.1). In particular,
+the sequence {𝑿𝑘} obtained via (2.7) converges to the unique solution of (2.8) provided that 0 <
+inf 𝛿𝑘 ≤ sup 𝛿𝑘 < 2.
+Proof. The second assertion follows from the first by taking𝒜 to be the sampling operator extracting
+those entries in Ω since ∥𝒜∥ = 1. To prove the first claim then, let (𝑿★,𝒚★) be primal-dual optimal
+for the problem (3.1). The optimality conditions give
+0 = 𝒁𝑘 −𝒜∗(𝒚𝑘−1)
+0 = 𝒁★ −𝒜∗(𝒚★),
+for some 𝒁𝑘 ∈ ∂𝑓𝜏 (𝑿𝑘) and some 𝒁★ ∈ ∂𝑓𝜏 (𝑿★). We then deduce that
+(𝒁𝑘 −𝒁★)−𝒜∗(𝒚𝑘−1 − 𝒚★) = 0
+14
+and, therefore, it follows from Lemma 4.1 that
+⟨𝑿𝑘 −𝑿★,𝒜∗(𝒚𝑘−1 − 𝒚★)⟩ = ⟨𝒁𝑘 −𝒁★,𝑿𝑘 −𝑿★⟩ ≥ ∥𝑿𝑘 −𝑿★∥2𝐹 . (4.2)
+We continue and observe that because 𝒜(𝑿★) = 𝒜(𝑴),
+∥𝒚𝑘 − 𝒚∥𝐹 = ∥𝒚𝑘−1 − 𝒚★ + 𝛿𝑘𝒜(𝑿★ −𝑿𝑘)∥𝐹 .
+Therefore, setting 𝑟𝑘 = ∥𝒚𝑘 − 𝒚★∥𝐹 ,
+𝑟2𝑘 = 𝑟
+2
+𝑘−1 − 2𝛿𝑘⟨𝒜∗(𝒚𝑘−1 − 𝒚★),𝑿𝑘 −𝑿★⟩+ 𝛿2𝑘∥𝒜(𝑿★ −𝑿𝑘)∥2𝐹
+≤ 𝑟2𝑘−1 − 2𝛿𝑘∥𝑿𝑘 −𝑿★∥2𝐹 + 𝛿2𝑘∥𝒜∥2∥𝑿𝑘 −𝑿★∥2𝐹 . (4.3)
+Under our assumptions, we have 2𝛿𝑘 − 𝛿2𝑘∥𝒜∥2 ≥ 𝛽 for all 𝑘 ≥ 1 and some 𝛽 > 0 and thus
+𝑟2𝑘 ≤ 𝑟2𝑘−1 − 𝛽∥𝑿𝑘 −𝑿★∥2𝐹 . (4.4)
+Two properties follow from this:
+1. The sequence {∥𝒜∗(𝒚𝑘 − 𝒚★)∥𝐹 } is nonincreasing and, therefore, converges to a limit.
+2. As a consequence, ∥𝑿𝑘 −𝑿★∥2𝐹 → 0 as 𝑘 → ∞.
+The theorem is established.
+4.2 General convergence theorem
+Our second result is more general and establishes the convergence of the SVT iterations to the
+solution of (3.4) under general convex constraints. From now now, we will only assume that the
+function ℱ(𝑿) is Lipschitz in the sense that
+∥ℱ(𝑿)−ℱ(𝒀 ∥ ≤ 𝐿(ℱ)∥𝑿 − 𝒀 ∥𝐹 , (4.5)
+for some nonnegative constant 𝐿(ℱ). Note that if ℱ is affine, ℱ(𝑿) = 𝒃 − 𝒜(𝑿), we have
+𝐿(ℱ) = ∥𝒜∥2 where ∥𝒜∥2 is the spectrum norm of the linear transformation 𝒜 defined as ∥𝒜∥2 :=
+sup{∥𝒜(𝑿)∥ℓ2 : ∥𝑿∥𝐹 = 1}. We also recall that ℱ(𝑿) = (𝑓1(𝑿), . . . , 𝑓𝑚(𝑿)) where each 𝑓𝑖 is
+convex, and that the Lagrangian for the problem (3.4) is given by
+ℒ(𝑿,𝒚) = 𝑓𝜏 (𝑿) + ⟨𝒚,ℱ(𝑿)⟩, 𝒚 ≥ 0.
+To simplify, we will assume that strong duality holds which is automatically true if the constraints
+obey constraint qualifications such as Slater’s condition [6].
+We first establish the following preparatory lemma.
+Lemma 4.3 Let (𝑿★,𝒚★) be a primal-dual optimal pair for (3.4). Then for each 𝛿 > 0, 𝒚★ obeys
+𝒚★ = [𝒚★ + 𝛿ℱ(𝑿★)]+. (4.6)
+15
+Proof. Recall that the projection 𝒙0 of a point 𝒙 onto a convex set 𝒞 is characterized by{
+𝒙0 ∈ 𝒞,
+⟨𝒚 − 𝒙0,𝒙− 𝒙0⟩ ≤ 0, ∀𝒚 ∈ 𝒞.
+In the case where 𝒞 = ℝ𝑚+ = {𝒙 ∈ ℝ𝑚 : 𝒙 ≥ 0}, this condition becomes 𝒙0 ≥ 0 and
+⟨𝒚 − 𝒙0,𝒙− 𝒙0⟩ ≤ 0, ∀𝒚 ≥ 0.
+Now because 𝒚★ is dual optimal we have
+ℒ(𝑿★,𝒚★) ≥ ℒ(𝑿★,𝒚), ∀𝒚 ≥ 0.
+Substituting the expression for the Lagrangian, this is equivalent to
+⟨𝒚 − 𝒚★,ℱ(𝑿★)⟩ ≤ 0, ∀𝒚 ≥ 0,
+which is the same as
+⟨𝒚 − 𝒚★,𝒚★ + 𝜌ℱ(𝑿★)− 𝒚★⟩ ≤ 0, ∀𝒚 ≥ 0, ∀𝜌 ≥ 0.
+Hence it follows that 𝒚★ must be the projection of 𝒚★ + 𝜌ℱ(𝑿★) onto the nonnegative orthant ℝ𝑚+ .
+Since the projection of an arbitrary vector 𝒙 onto ℝ𝑚+ is given by 𝒙+, our claim follows.
+We are now in the position to state our general convergence result.
+Theorem 4.4 Suppose that the sequence of step sizes obeys 0 < inf 𝛿𝑘 ≤ sup 𝛿𝑘 < 2/∥𝐿(ℱ)∥2,
+where 𝐿(ℱ) is the Lipschitz constant in (4.5). Then assuming strong duality, the sequence {𝑿𝑘}
+obtained via (3.5) converges to the unique solution of (3.4).
+Proof. Let (𝑿★,𝒚★) be primal-dual optimal for the problem (3.4). We claim that the optimality
+conditions give that for all 𝑿
+⟨𝒁𝑘,𝑿 −𝑿𝑘⟩+ ⟨𝒚𝑘−1,ℱ(𝑿)−ℱ(𝑿𝑘)⟩ ≥ 0,
+⟨𝒁★,𝑿 −𝑿★⟩+ ⟨𝒚★,ℱ(𝑿)−ℱ(𝑿★)⟩ ≥ 0, (4.7)
+for some 𝒁𝑘 ∈ ∂𝑓𝜏 (𝑿𝑘) and some 𝒁★ ∈ ∂𝑓𝜏 (𝑿★). We justify this assertion by proving one of the
+two inequalities since the other is exactly similar. For the first, 𝑿𝑘 minimizes ℒ(𝑿,𝒚𝑘−1) over all
+𝑿 and, therefore, there exist 𝒁𝑘 ∈ ∂𝑓𝜏 (𝑿𝑘) and 𝒁𝑘𝑖 ∈ ∂𝑓𝑖(𝑿𝑘), 1 ≤ 𝑖 ≤ 𝑚, such that
+𝒁𝑘 +
+𝑚∑
+𝑖=1
+𝑦𝑘−1𝑖 𝒁
+𝑘
+𝑖 = 0.
+Now because each 𝑓𝑖 is convex,
+𝑓𝑖(𝑿)− 𝑓𝑖(𝑿𝑘) ≥ ⟨𝒁𝑘𝑖 ,𝑿 −𝑿𝑘⟩
+and, therefore,
+⟨𝒁𝑘,𝑿 −𝑿𝑘⟩+
+𝑚∑
+𝑖=1
+𝑦𝑘−1𝑖 (𝑓𝑖(𝑿)− 𝑓𝑖(𝑿𝑘)) ≥ ⟨𝒁𝑘 +
+𝑚∑
+𝑖=1
+𝑦𝑘−1𝑖 𝒁
+𝑘
+𝑖 ,𝑿 −𝑿𝑘⟩ = 0.
+16
+This is (4.7).
+Now write the first inequality in (4.7) for 𝑿★, the second for 𝑿𝑘 and sum the two inequalities.
+This gives
+⟨𝒁𝑘 −𝒁★,𝑿𝑘 −𝑿★⟩+ ⟨𝒚𝑘−1 − 𝒚★,ℱ(𝑿𝑘)−ℱ(𝑿★)⟩ ≤ 0.
+The rest of the proof is essentially the same as that of Theorem 4.2. It follows from Lemma 4.1
+that
+⟨𝒚𝑘−1 − 𝒚★,ℱ(𝑿𝑘)−ℱ(𝑿★)⟩ ≤ −⟨𝒁𝑘 −𝒁★,𝑿𝑘 −𝑿★⟩ ≤ −∥𝑿𝑘 −𝑿★∥2𝐹 . (4.8)
+We continue and observe that because 𝒚★ = [𝒚★ + 𝛿𝑘ℱ(𝑿)]+ by Lemma 4.3, we have
+∥𝒚𝑘 − 𝒚★∥ = ∥[𝒚𝑘−1 + 𝛿𝑘ℱ(𝑿𝑘)]+ − [𝒚★ + 𝛿𝑘ℱ(𝑿★)]+∥
+≤ ∥𝒚𝑘−1 − 𝒚★ + 𝛿𝑘(ℱ(𝑿𝑘)−ℱ(𝑿★))∥
+since the projection onto the convex set ℝ𝑚+ is a contraction. Therefore,
+∥𝒚𝑘 − 𝒚★∥2 = ∥𝒚𝑘−1 − 𝒚★∥2 + 2𝛿𝑘 ⟨𝒚𝑘−1 − 𝒚★,ℱ(𝑿𝑘)−ℱ(𝑿★)⟩+ 𝛿2𝑘∥ℱ(𝑿𝑘)−ℱ(𝑿★)∥2
+≤ ∥𝒚𝑘−1 − 𝒚★∥2 − 2𝛿𝑘∥𝑿𝑘 −𝑿★∥2𝐹 + 𝛿2𝑘𝐿2 ∥𝑿𝑘 −𝑿★∥2𝐹 ,
+where we have put 𝐿 instead of 𝐿(ℱ) for short. Under our assumptions about the size of 𝛿𝑘, we
+have 2𝛿𝑘 − 𝛿2𝑘𝐿2 ≥ 𝛽 for all 𝑘 ≥ 1 and some 𝛽 > 0. Then
+∥𝒚𝑘 − 𝒚★∥2 ≤ ∥𝒚𝑘−1 − 𝒚★∥2 − 𝛽∥𝑿𝑘 −𝑿★∥2𝐹 , (4.9)
+and the conclusion is as before.
+5 Implementation and Numerical Results
+This section provides implementation details of the SVT algorithm—as to make it practically
+effective for matrix completion—such as the numerical evaluation of the singular value thresholding
+operator, the selection of the step size 𝛿𝑘, the selection of a stopping criterion, and so on. This
+section also introduces several numerical simulation results which demonstrate the performance
+and effectiveness of the SVT algorithm. We show that 30, 000 × 30, 000 matrices of rank 10 are
+recovered from just about 0.4% of their sampled entries in a matter of a few minutes on a modest
+desktop computer with a 1.86 GHz CPU (dual core with Matlab’s multithreading option enabled)
+and 3 GB of memory.
+5.1 Implementation details
+5.1.1 Evaluation of the singular value thresholding operator
+To apply the singular value thresholding operator at level 𝜏 to an input matrix, it suffices to know
+those singular values and corresponding singular vectors above the threshold 𝜏 . In the matrix
+completion problem, the singular value thresholding operator is applied to sparse matrices {𝒀 𝑘}
+since the number of sampled entries is typically much lower than the number of entries in the
+unknown matrix 𝑴 , and we are hence interested in numerical methods for computing the dominant
+singular values and singular vectors of large sparse matrices. The development of such methods is
+a relatively mature area in scientific computing and numerical linear algebra in particular. In fact,
+17
+many high-quality packages are readily available. Our implementation uses PROPACK, see [38]
+for documentation and availability. One reason for this choice is convenience: PROPACK comes
+in a Matlab and a Fortran version, and we find it convenient to use the well-documented Matlab
+version. More importantly, PROPACK uses the iterative Lanczos algorithm to compute the singular
+values and singular vectors directly, by using the Lanczos bidiagonalization algorithm with partial
+reorthogonalization. In particular, PROPACK does not compute the eigenvalues and eigenvectors
+of (𝒀 𝑘)∗𝒀 𝑘 and 𝒀 𝑘(𝒀 𝑘)∗, or of an augmented matrix as in the Matlab built-in function ‘svds’ for
+example. Consequently, PROPACK is an efficient—both in terms of number of flops and storage
+requirement—and stable package for computing the dominant singular values and singular vectors
+of a large sparse matrix. For information, the available documentation [38] reports a speedup
+factor of about ten over Matlab’s ‘svds’. Furthermore, the Fortran version of PROPACK is about
+3–4 times faster than the Matlab version. Despite this significant speedup, we have only used the
+Matlab version but since the singular value shrinkage operator is by-and-large the dominant cost in
+the SVT algorithm, we expect that a Fortran implementation would run about 3 to 4 times faster.
+As for most SVD packages, though one can specify the number of singular values to compute,
+PROPACK can not automatically compute only those singular values exceeding the threshold 𝜏 .
+One must instead specify the number 𝑠 of singular values ahead of time, and the software will
+compute the 𝑠 largest singular values and corresponding singular vectors. To use this package, we
+must then determine the number 𝑠𝑘 of singular values of 𝒀
+𝑘−1 to be computed at the 𝑘th iteration.
+We use the following simple method. Let 𝑟𝑘−1 = rank(𝑿𝑘−1) be the number of nonzero singular
+values of 𝑿𝑘−1 at the previous iteration. Set 𝑠𝑘 = 𝑟𝑘−1+1 and compute the first 𝑠𝑘 singular values
+of 𝒀 𝑘−1. If some of the computed singular values are already smaller than 𝜏 , then 𝑠𝑘 is a right
+choice. Otherwise, increment 𝑠𝑘 by a predefined integer ℓ repeatedly until some of the singular
+values fall below 𝜏 . In the experiments, we choose ℓ = 5. Another rule might be to repeatedly
+multiply 𝑠𝑘 by a positive number—e.g. 2—until our criterion is met. Incrementing 𝑠𝑘 by a fixed
+integer works very well in practice; in our experiments, we very rarely need more than one update.
+We note that it is not necessary to rerun the Lanczos iterations for the first 𝑠𝑘 vectors since they
+have been already computed; only a few new singular values (ℓ of them) need to be numerically
+evaluated. This can be done by modifying the PROPACK routines. We have not yet modified
+PROPACK, however. Had we done so, our run times would be decreased.
+5.1.2 Step sizes
+There is a large literature on ways of selecting a step size but for simplicity, we shall use step sizes
+that are independent of the iteration count; that is 𝛿𝑘 = 𝛿 for 𝑘 = 1, 2, . . .. From Theorem 4.2,
+convergence for the completion problem is guaranteed (2.7) provided that 0 < 𝛿 < 2. This choice
+is, however, too conservative and the convergence is typically slow. In our experiments, we use
+instead
+𝛿 = 1.2
+𝑛1𝑛2
+𝑚
+, (5.1)
+i.e. 1.2 times the undersampling ratio. We give a heuristic justification below.
+Consider a fixed matrix 𝑨 ∈ ℝ𝑛1×𝑛2 . Under the assumption that the column and row spaces of
+𝑨 are not well aligned with the vectors taken from the canonical basis of ℝ𝑛1 and ℝ𝑛2 respectively—
+the incoherence assumption in [14]—then with very large probability over the choices of Ω, we have
+(1− 𝜖)𝑝 ∥𝑨∥2𝐹 ≤ ∥𝒫Ω(𝑨)∥2𝐹 ≤ (1 + 𝜖)𝑝 ∥𝑨∥2𝐹 , 𝑝 := 𝑚/(𝑛1𝑛2), (5.2)
+18
+provided that the rank of 𝑨 is not too large. The probability model is that Ω is a set of sampled
+entries of cardinality 𝑚 sampled uniformly at random so that all the choices are equally likely. In
+(5.2), we want to think of 𝜖 as a small constant, e.g. smaller than 1/2. In other words, the ‘energy’
+of 𝑨 on Ω (the set of sampled entries) is just about proportional to the size of Ω. The near isometry
+(5.2) is a consequence of Theorem 4.1 in [14], and we omit the details.
+Now returning to the proof of Theorem 4.2, we see that a sufficient condition for the convergence
+of (2.7) is
+∃𝛽 > 0, −2𝛿∥𝑿★ −𝑿𝑘∥2𝐹 + 𝛿2∥𝒫Ω(𝑿★ −𝑿𝑘)∥2𝐹 ≤ −𝛽∥𝑿★ −𝑿𝑘∥2𝐹 ,
+compare (4.4), which is equivalent to
+0 < 𝛿 < 2
+∥𝑿★ −𝑿𝑘∥2𝐹
+∥𝒫Ω(𝑿★ −𝑿𝑘)∥2𝐹
+.
+Since ∥𝒫Ω(𝑿)∥𝐹 ≤ ∥𝑿∥𝐹 for any matrix 𝑿 ∈ ℝ𝑛1×𝑛2 , it is safe to select 𝛿 < 2. But suppose that
+we could apply (5.2) to the matrix 𝑨 = 𝑿★ − 𝑿𝑘. Then we could take 𝛿 inversely proportional
+to 𝑝; e.g. with 𝜖 = 1/4, we could take 𝛿 ≤ 1.6𝑝−1. Below, we shall use the value 𝛿 = 1.2𝑝−1 which
+allows us to take large steps and still provides convergence, at least empirically.
+The reason why this is not a rigorous argument is that (5.2) cannot be applied to 𝑨 = 𝑿★−𝑿𝑘
+even though this matrix difference may obey the incoherence assumption. The issue here is that
+𝑿★ − 𝑿𝑘 is not a fixed matrix, but rather depends on Ω since the iterates {𝑿𝑘} are computed
+with the knowledge of the sampled set.
+5.1.3 Initial steps
+The SVT algorithm starts with 𝒀 0 = 0, and we want to choose a large 𝜏 to make sure that the
+solution of (2.8) is close enough to a solution of (1.1). Define 𝑘0 as that integer obeying
+𝜏
+𝛿∥𝒫Ω(𝑴)∥2 ∈ (𝑘0 − 1, 𝑘0]. (5.3)
+Since 𝒀 0 = 0, it is not difficult to see that
+𝑿𝑘 = 0, 𝒀 𝑘 = 𝑘𝛿𝒫Ω(𝑴), 𝑘 = 1, . . . , 𝑘0.
+To save work, we may simply skip the computations of 𝑿1, . . . ,𝑿𝑘0 , and start the iteration by
+computing 𝑿𝑘0+1 from 𝒀 𝑘0 .
+This strategy is a special case of a kicking device introduced in [47]; the main idea of such
+a kicking scheme is that one can ‘jump over’ a few steps whenever possible. Just like in the
+aforementioned reference, we can develop similar kicking strategies here as well. Because in our
+numerical experiments the kicking is rarely triggered, we forgo the description of such strategies.
+5.1.4 Stopping criteria
+Here, we discuss stopping criteria for the sequence of SVT iterations (2.7), and present two possi-
+bilities.
+19
+The first is motivated by the first-order optimality conditions or KKT conditions tailored to the
+minimization problem (2.8). By (2.14) and letting ∂𝒀 𝑔0(𝒀 ) = 0 in (2.13), we see that the solution
+𝑿★𝜏 to (2.8) must also verify {
+𝑿 = 𝒟𝜏 (𝒀 ),
+𝒫Ω(𝑿 −𝑴) = 0,
+(5.4)
+where 𝒀 is a matrix vanishing outside of Ω𝑐. Therefore, to make sure that 𝑿𝑘 is close to 𝑿★𝜏 , it
+is sufficient to check how close (𝑿𝑘,𝒀 𝑘−1) is to obeying (5.4). By definition, the first equation in
+(5.4) is always true. Therefore, it is natural to stop (2.7) when the error in the second equation is
+below a specified tolerance. We suggest stopping the algorithm when
+∥𝒫Ω(𝑿𝑘 −𝑴)∥𝐹
+∥𝒫Ω(𝑴)∥𝐹 ≤ 𝜖, (5.5)
+where 𝜖 is a fixed tolerance, e.g. 10−4. We provide a short heuristic argument justifying this choice
+below.
+In the matrix completion problem, we know that under suitable assumptions
+∥𝒫Ω(𝑴)∥2𝐹 ≍ 𝑝 ∥𝑴∥2𝐹 ,
+which is just (5.2) applied to the fixed matrix 𝑴 (the symbol ≍ here means that there is a constant
+𝜖 as in (5.2)). Suppose we could also apply (5.2) to the matrix 𝑿𝑘−𝑴 (which we rigorously cannot
+since 𝑿𝑘 depends on Ω), then we would have
+∥𝒫Ω(𝑿𝑘 −𝑴)∥2𝐹 ≍ 𝑝 ∥𝑿𝑘 −𝑴∥2𝐹 , (5.6)
+and thus
+∥𝒫Ω(𝑿𝑘 −𝑴)∥𝐹
+∥𝒫Ω(𝑴)∥𝐹 ≍
+∥𝑿𝑘 −𝑴∥𝐹
+∥𝑴∥𝐹 .
+In words, one would control the relative reconstruction error by controlling the relative error on
+the set of sampled locations.
+A second stopping criterion comes from duality theory. Firstly, the iterates 𝑿𝑘 are generally
+not feasible for (2.8) although they become asymptotically feasible. One can construct a feasible
+point from 𝑿𝑘 by projecting it onto the affine space {𝑿 : 𝒫Ω(𝑿) = 𝒫Ω(𝑴)} as follows:
+?̃?𝑘 = 𝑿𝑘 + 𝒫Ω(𝑴 −𝑿𝑘).
+As usual let 𝑓𝜏 (𝑿) = 𝜏∥𝑿∥∗ + 12∥𝑿∥2𝐹 and denote by 𝑝★ the optimal value of (2.8). Since ?̃?𝑘 is
+feasible, we have
+𝑝★ ≤ 𝑓𝜏 (?̃?𝑘) := 𝑏𝑘.
+Secondly, using the notations of Section 2.4, duality theory gives that
+𝑎𝑘 := 𝑔0(𝒀
+𝑘−1) = ℒ(𝑿𝑘,𝒀 𝑘−1) ≤ 𝑝★.
+Therefore, 𝑏𝑘 − 𝑎𝑘 is an upper bound on the duality gap and one can stop the algorithm when this
+quantity falls below a given tolerance.
+20
+For very large problems in which one holds 𝑿𝑘 in reduced SVD form, one may not want to
+compute the projection ?̃?𝑘 since this matrix would not have low rank and would require signifi-
+cant storage space (presumably, one would not want to spend much time computing this projection
+either). Hence, the second method only makes practical sense when the dimensions are not pro-
+hibitively large, or when the iterates do not have low rank.
+Similarly, one can derive stopping criteria for all the iterations (3.3), (3.5) and (3.6). For
+example, we can stop (3.3) for general linear constraints when ∥𝒜(𝑿𝑘)− 𝒃∥/∥𝒃∥ ≤ 𝜖. We omit the
+detailed discussions here.
+5.1.5 Algorithm
+We conclude this section by summarizing the implementation details and give the SVT algorithm
+for matrix completion below (Algorithm 1). Of course, one would obtain a very similar structure
+for the more general problems of the form (3.1) and (3.4) with linear inequality constraints. For
+convenience, define for each nonnegative integer 𝑠 ≤ min{𝑛1, 𝑛2},
+[𝑼𝑘,Σ𝑘,𝑽 𝑘]𝑠, 𝑘 = 1, 2, . . . ,
+where 𝑼𝑘 = [𝒖𝑘1, . . . ,𝒖
+𝑘
+𝑠 ] and 𝑽
+𝑘 = [𝒗𝑘1 , . . . ,𝒗
+𝑘
+𝑠 ] are the first 𝑠 singular vectors of the matrix 𝒀
+𝑘,
+and Σ𝑘 is a diagonal matrix with the first 𝑠 singular values 𝜎𝑘1 , . . . , 𝜎
+𝑘
+𝑠 on the diagonal.
+Algorithm 1: Singular Value Thresholding (SVT) Algorithm
+Input: sampled set Ω and sampled entries 𝒫Ω(𝑴), step size 𝛿, tolerance 𝜖, parameter
+𝜏 , increment ℓ, and maximum iteration count 𝑘max
+Output: 𝑿opt
+Description: Recover a low-rank matrix 𝑴 from a subset of sampled entries
+(1)Set 𝒀 0 = 𝑘0𝛿𝒫Ω(𝑴) (𝑘0 is defined in (5.3))
+(2)Set 𝑟0 = 0
+(3)for 𝑘 = 1 to 𝑘max
+(4)Set 𝑠𝑘 = 𝑟𝑘−1 + 1
+(5)repeat
+(6) Compute [𝑼𝑘−1,Σ𝑘−1,𝑽 𝑘−1]𝑠𝑘
+(7) Set 𝑠𝑘 = 𝑠𝑘 + ℓ
+(8)until 𝜎𝑘−1𝑠𝑘−ℓ ≤ 𝜏
+(9)Set 𝑟𝑘 = max{𝑗 : 𝜎𝑘−1𝑗 > 𝜏}
+(10)Set 𝑿𝑘 =
+∑𝑟𝑘
+𝑗=1(𝜎
+𝑘−1
+𝑗 − 𝜏)𝒖𝑘−1𝑗 𝒗𝑘−1𝑗
+(11)
+if ∥𝒫Ω(𝑿𝑘 −𝑴)∥𝐹 /∥𝒫Ω𝑴∥𝐹 ≤ 𝜖 then break
+(12)
+Set 𝑌 𝑘𝑖𝑗 =
+{
+0 if (𝑖, 𝑗) ∕∈ Ω,
+𝑌 𝑘−1𝑖𝑗 + 𝛿(𝑀𝑖𝑗 −𝑋𝑘𝑖𝑗) if (𝑖, 𝑗) ∈ Ω
+(13)end for 𝑘
+(14)Set 𝑿opt = 𝑿𝑘
+21
+Unknown 𝑴 Computational results
+size (𝑛× 𝑛) rank (𝑟) 𝑚/𝑑𝑟 𝑚/𝑛2 time(s) # iters relative error
+10 6 0.12 23 117 1.64× 10−4
+1, 000× 1, 000 50 4 0.39 196 114 1.59× 10−4
+100 3 0.57 501 129 1.68× 10−4
+10 6 0.024 147 123 1.73× 10−4
+5, 000× 5, 000 50 5 0.10 950 108 1.61× 10−4
+100 4 0.158 3,339 123 1.72× 10−4
+10 6 0.012 281 123 1.73× 10−4
+10, 000× 10, 000 50 5 0.050 2,096 110 1.65× 10−4
+100 4 0.080 7,059 127 1.79× 10−4
+10 6 0.006 588 124 1.73× 10−4
+20, 000× 20, 000
+50 5 0.025 4,581 111 1.66× 10−4
+30, 000× 30, 000 10 6 0.004 1,030 125 1.73× 10−4
+Table 1: Experimental results for matrix completion. The rank 𝑟 is the rank of the unknown
+matrix 𝑴 , 𝑚/𝑑𝑟 is the ratio between the number of sampled entries and the number of
+degrees of freedom in an 𝑛×𝑛 matrix of rank 𝑟 (oversampling ratio), and 𝑚/𝑛2 is the fraction
+of observed entries. All the computational results on the right are averaged over five runs.
+5.2 Numerical results
+5.2.1 Linear equality constraints
+Our implementation is in Matlab and all the computational results we are about to report were
+obtained on a desktop computer with a 1.86 GHz CPU (dual core with Matlab’s multithreading
+option enabled) and 3 GB of memory. In our simulations, we generate 𝑛 × 𝑛 matrices of rank 𝑟
+by sampling two 𝑛× 𝑟 factors 𝑴𝐿 and 𝑴𝑅 independently, each having i.i.d. Gaussian entries, and
+setting 𝑴 = 𝑴𝐿𝑴
+∗
+𝑅 as it is suggested in [14]. The set of observed entries Ω is sampled uniformly
+at random among all sets of cardinality 𝑚.
+The recovery is performed via the SVT algorithm (Algorithm 1), and we use
+∥𝒫Ω(𝑿𝑘 −𝑴)∥𝐹 /∥𝒫Ω𝑴∥𝐹 < 10−4 (5.7)
+as a stopping criterion. As discussed earlier, the step sizes are constant and we set 𝛿 = 1.2𝑝−1.
+Throughout this section, we denote the output of the SVT algorithm by 𝑿opt. The parameter 𝜏
+is chosen empirically and set to 𝜏 = 5𝑛. A heuristic argument is as follows. Clearly, we would like
+the term 𝜏∥𝑴∥∗ to dominate the other, namely, 12∥𝑴∥2𝐹 . For products of Gaussian matrices as
+above, standard random matrix theory asserts that the Frobenius norm of 𝑴 concentrates around
+𝑛
+√
+𝑟, and that the nuclear norm concentrates around about 𝑛𝑟 (this should be clear in the simple
+case where 𝑟 = 1 and is generally valid). The value 𝜏 = 5𝑛 makes sure that on the average, the
+value of 𝜏∥𝑴∥∗ is about 10 times that of 12∥𝑴∥2𝐹 as long as the rank is bounded away from the
+dimension 𝑛.
+Our computational results are displayed in Table 1. There, we report the run time in seconds, the
+number of iterations it takes to reach convergence (5.7), and the relative error of the reconstruction
+relative error = ∥𝑿opt −𝑴∥𝐹 /∥𝑴∥𝐹 , (5.8)
+22
+where 𝑴 is the real unknown matrix. All of these quantities are averaged over five runs. The table
+also gives the percentage of entries that are observed, namely, 𝑚/𝑛2 together with a quantity that
+we may want to think as the information oversampling ratio. Recall that an 𝑛× 𝑛 matrix of rank
+𝑟 depends upon 𝑑𝑟 := 𝑟(2𝑛− 𝑟) degrees of freedom. Then 𝑚/𝑑𝑟 is the ratio between the number of
+sampled entries and the ‘true dimensionality’ of an 𝑛× 𝑛 matrix of rank 𝑟.
+The first observation is that the SVT algorithm performs extremely well in these experiments.
+In all of our experiments, it takes fewer than 200 SVT iterations to reach convergence. As a
+consequence, the run times are short. As indicated in the table, we note that one recovers a
+1, 000×1, 000 matrix of rank 10 in less than a minute. The algorithm also recovers 30, 000×30, 000
+matrices of rank 10 from about 0.4% of their sampled entries in just about 17 minutes. In addition,
+higher-rank matrices are also efficiently completed: for example, it takes between one and two
+hours to recover 10, 000×10, 000 matrices of rank 100 and 20, 000×20, 000 matrices of rank 50. We
+would like to stress that these numbers were obtained on a modest CPU (1.86GHz). Furthermore,
+a Fortran implementation is likely to cut down on these numbers by a multiplicative factor typically
+between three and four.
+We also check the validity of the stopping criterion (5.7) by inspecting the relative error defined
+in (5.8). The table shows that the heuristic and nonrigorous analysis of Section 5.1 holds in practice
+since the relative reconstruction error is of the same order as ∥𝒫Ω(𝑿opt−𝑴)∥𝐹 /∥𝒫Ω𝑴∥𝐹 ∼ 10−4.
+Indeed, the overall relative errors reported in Table 1 are all less than 2× 10−4.
+We emphasized all along an important feature of the SVT algorithm, which is that the matrices
+𝑿𝑘 have low rank. We demonstrate this fact empirically in Figure 1, which plots the rank of
+𝑿𝑘 versus the iteration count 𝑘, and does this for unknown matrices of size 5, 000 × 5, 000 with
+different ranks. The plots reveal an interesting phenomenon: in our experiments, the rank of 𝑿𝑘
+is nondecreasing so that the maximum rank is reached in the final steps of the algorithm. In fact,
+the rank of the iterates quickly reaches the value 𝑟 of the true rank. After these few initial steps,
+the SVT iterations search for that matrix with rank 𝑟 minimizing the objective functional. As
+mentioned earlier, the low-rank property is crucial for making the algorithm run fast.
+0 20 40 60 80 100 120
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+Itertion Step k
+R
+an
+k 
+of
+ X
+k
+0 20 40 60 80 100
+0
+10
+20
+30
+40
+50
+60
+Iteration step k
+R
+an
+k 
+of
+ X
+k
+0 20 40 60 80 100 120
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100
+110
+Iteration step k
+R
+an
+k 
+of
+ X
+k
+𝑟 = 10 𝑟 = 50 𝑟 = 100
+Figure 1: Rank of 𝑿𝑘 as a function 𝑘 when the unknown matrix 𝑴 is of size 5, 000× 5, 000
+and of rank 𝑟.
+We now present a limited study examining the role of the parameters 𝛿 and 𝜏 in the convergence.
+We consider a square 1000 × 1000 matrix of rank 10, and select a number 𝑚 of entries equal to
+6 times the number of degrees of freedom; that is, 𝑚 = 6𝑑𝑟. Numerical results are reported in
+Table 2, which gives the number of iterations needed to achieve convergence (5.7) and the average
+23
+𝛿 = 0.8𝑝−1 𝛿 = 1.2𝑝−1 𝛿 = 1.6𝑝−1
+# of iters rank # of iters rank # of iters rank
+mean std mean mean std mean mean std mean
+𝜏 = 2𝑛 322 192 15.4 764 1246 11.9 DNC DNC DNC
+𝜏 = 3𝑛 117 2.6 10.0 77 1.8 10.0 1310 2194 10.0
+𝜏 = 4𝑛 146 3.1 10.0 97 2.0 9.9 266 435 10.0
+𝜏 = 5𝑛 177 4.1 10.0 117 2.8 10.0 87 2.3 10.0
+𝜏 = 6𝑛 207 6.2 10.0 136 2.7 10.0 102 1.9 10.0
+Table 2: Mean and standard deviation over five runs of the number of iterations needed to
+achieve (5.7) for different values of the parameters 𝛿 and 𝜏 , together with the average ranks of
+𝑿𝑘. The test example is a random 1000× 1000 matrix of rank 10, and the number of sampled
+entries is 𝑚 = 6𝑑𝑟. We also report ‘DNC’ when none of the five runs obeys (5.7) after 1,000
+iterations.
+rank of each iteration for different values of 𝛿 and 𝜏 . This table suggests that for each value of 𝛿,
+there exists an optimal 𝜏 for which the SVT algorithm performs best. In more details, when 𝜏 is
+smaller than this optimal value, the number of iterations needed to achieve convergence is larger
+(and also more variable). In addition, the average rank of each iteration is also larger, and thus the
+computational cost is higher. When 𝜏 is close to the optimal value, the SVT algorithm exhibits
+a rapid convergence, and there is little variability in the number of iterations needed to achieve
+convergence. When 𝜏 is too large, the SVT algorithm may overshrink 𝒀 𝑘 at each iterate which, in
+turn, leads to slow convergence. Table 2 also indicates that the convergence of the SVT algorithm
+depends on the step size 𝛿.
+Finally, we demonstrate the results of the SVT algorithm for matrix completion from noisy
+sampled entries. Suppose we observe data from the model
+𝐵𝑖𝑗 = 𝑀𝑖𝑗 + 𝑍𝑖𝑗 , (𝑖, 𝑗) ∈ Ω, (5.9)
+where 𝒁 is a zero-mean Gaussian white noise with standard deviation 𝜎. We run the SVT algorithm
+but stop early, as soon as 𝑿𝑘 is consistent with the data and obeys
+∥𝒫Ω(𝑿𝑘 −𝑩)∥2𝐹 ≤ (1 + 𝜖)𝑚𝜎2, (5.10)
+where 𝜖 is a small parameter. Since ∥𝒫Ω(𝑴 −𝑩)∥2𝐹 is very close to 𝑚𝜎2 for large values of 𝑚, we
+set 𝜖 = 0. Our reconstruction ?̂? is the first 𝑿𝑘 obeying (5.10). The results are shown in Table 3
+(the quantities are averages of 5 runs). Define the noise ratio as
+∥𝒫Ω(𝒁)∥𝐹 /∥𝒫Ω(𝑴)∥𝐹 ,
+and the relative error by (5.8). From Table 3, we see that the SVT algorithm works well as the
+relative error between the recovered and the true data matrix is just about equal to the noise ratio.
+The theory of low-rank matrix recovery from noisy data is nonexistent at the moment, and is
+obviously beyond the scope of this paper. Having said this, we would like to conclude this section
+with an intuitive and nonrigorous discussion, which may explain why the observed recovery error
+24
+Unknown matrix 𝑴 Computational resultsnoise ratio
+size (𝑛× 𝑛) rank (𝑟) 𝑚/𝑑𝑟 𝑚/𝑛2 time(s) # iters relative error
+10 6 0.12 10.8 51 0.78× 10−2
+10−2 1, 000× 1, 000 50 4 0.39 87.7 48 0.95× 10−2
+100 3 0.57 216 50 1.13× 10−2
+10 6 0.12 4.0 19 0.72× 10−1
+10−1 1, 000× 1, 000 50 4 0.39 33.2 17 0.89× 10−1
+100 3 0.57 85.2 17 1.01× 10−1
+10 6 0.12 0.9 3 0.52
+1 1, 000× 1, 000 50 4 0.39 7.8 3 0.63
+100 3 0.57 34.8 3 0.69
+Table 3: Simulation results for noisy data. The computational results are averaged over five
+runs. For each test, the table shows the results of Algorithm 1 applied with an early stopping
+criterion
+is within the noise level. Suppose again that ?̂? obeys (5.6), namely,
+∥𝒫Ω(?̂? −𝑴)∥2𝐹 ≍ 𝑝∥?̂? −𝑴∥2𝐹 . (5.11)
+As mentioned earlier, one condition for this to happen is that 𝑴 and ?̂? have low rank. This is
+the reason why it is important to stop the algorithm early as we hope to obtain a solution which
+is both consistent with the data and has low rank (the limit of the SVT iterations, lim𝑘→∞𝑿𝑘,
+will not generally have low rank since there may be no low-rank matrix matching the noisy data).
+From
+∥𝒫Ω(?̂? −𝑴)∥𝐹 ≤ ∥𝒫Ω(?̂? −𝑩)∥𝐹 + ∥𝒫Ω(𝑩 −𝑴)∥𝐹 ,
+and the fact that both terms on the right-hand side are on the order of
+√
+𝑚𝜎2, we would have
+𝑝∥?̂? −𝑴∥2𝐹 = 𝑂(𝑚𝜎2) by (5.11). In particular, this would give that the relative reconstruction
+error is on the order of the noise ratio since ∥𝒫Ω(𝑴)∥2𝐹 ≍ 𝑝∥𝑴∥2𝐹—as observed experimentally.
+5.2.2 Inequality constraints
+We now examine the speed at which one can solve similar problems with inequality constraints
+instead of linear equality constraints. We assume the model (5.9), where the matrix 𝑴 of rank 𝑟
+is sampled as before.
+We use the noise-aware variant with quadratic constraints (3.10)–(3.11). We set 𝜖 to 𝜖2 =
+𝜎2(𝑚 + 2
+√
+2𝑚) as this provides a likely upper bound on ∥𝒛∥ so that the true matrix 𝑴 is in
+the feasible set with high probability. The step size is as before and set to 1.2/𝑝. As a stopping
+criterion, we stop the iterations (3.12) when the quadratic constraint is very nearly satisfied; in
+details, we terminate the algorithm when
+∥𝒃−𝒜(𝑿𝑘)∥𝐹 ≤ (1 + tol) 𝜖
+where tol is some small scalar, typically 0.05 so that the constraint is nearly enforced.
+The experimental results are shown in Table 4. Our experiments suggest that the algorithm
+(3.12) is fast, and provides statistically accurate answers since it predicts the unseen entries with an
+25
+tol time(s) # iters ∥?̂? −𝑴∥𝐹 /(𝑛𝜎) ∥?̂?∥∗ rank(?̂?)
+0.25 32.8 126 1.11 9034 10
+0.2 45.1 158 1.06 9119 15
+0.15 94.2 192 1.04 9212 26
+0.1 248 232 1.04 9308 39
+0.05 447 257 1.03 9415 45
+Table 4: Simulation results for the noise-aware variant (3.12), which solves (3.11). The
+unknown matrix 𝑴 is 1000 × 1000 and of rank 𝑟 = 10. We get to see 6 entries per degree of
+freedom; i.e. 𝑚 = 6𝑑𝑟. The noise ratio added is 0.1. The averaged true nuclear norm is 9961.
+We choose 𝜏 = 5𝑛 and 𝛿 = 1.2𝑝−1. The computational results are averaged over five runs. The
+computer here is a quad-core 2.30GHz AMD Phenom running Matlab 7.6.0 with 3 threads.
+accuracy which is about equal to the standard deviation of the noise. In fact, very recent work [20]
+performed after the original submission of this paper suggests that even with considerable side
+information about the unknown matrix, one would not be able to do much better.
+As seen in the table, although the reconstruction is accurate, the ranks of the iterates 𝑿𝑘 seem
+to increase with the iteration count 𝑘. This is unlike the case with equality constraints, and we
+have witnessed this phenomenon in other settings as well such as in the case of linear inequality
+constraints; e.g. with the iteration (3.9) for solving (3.8). Because a higher rank slows down each
+iteration, it would be of interest to find methods which stabilize the rank and keep it low in general
+settings. We leave this important issue for future research.
+5.3 An example with real data
+We conclude the numerical section by applying our algorithms to a real dataset. We downloaded
+from the website [7] a matrix of geodesic distances (in miles) between 312 cities located in the
+United States and Canada. The geodesic distances were computed from latitude and longitude
+information, and rounded to the nearest integer. It is well known that the squared Euclidean
+distance matrix is a low rank matrix. With geodesic distances, however, a numerical test suggests
+that the geodesic-distance matrix 𝑴 can be well approximated by a low-rank matrix. Indeed,
+letting 𝑴3 be the best rank-3 approximation, we have ∥𝑴3∥𝐹 /∥𝑴∥𝐹 = 0.9933 or, equivalently,
+∥𝑴3 −𝑴∥𝐹 /∥𝑴∥𝐹 = 0.1159. Now sample 30% of the entries of 𝑴 and obtain and estimate ?̂?
+by the SVT algorithm and its noise aware variant (3.6). Here, we set 𝜏 = 107 which happens to be
+about 100 times the largest singular value of 𝑴 , and set 𝛿 = 2. For completion, we use the SVT
+algorithm and the iteration (3.6), which solves (3.8) with 𝐸𝑖𝑗 = 0.01∣𝑀 ∣𝑖𝑗 . In Figure 2, we plot the
+relative error ∥𝑴−𝑿𝑘∥𝐹 /∥𝑴∥𝐹 , the relative residual error ∥𝒫Ω(𝑴−𝑿𝑘)∥𝐹 /∥𝒫Ω(𝑴)∥𝐹 and the
+error of the best approximation with the same rank. Let 𝑘𝑖 be the smallest integer such that the
+rank of 𝑿𝑘𝑖 is 𝑖 and the rank of 𝑿𝑘𝑖+1 is 𝑖+1. The computational times needed to reach the 𝑘𝑖th
+iteration are shown in Table 5. This table indicates that in a few seconds and in a few iterations,
+both the SVT algorithm and the iteration (3.6) give a completion, which is nearly as accurate as
+the best possible low-rank approximation to the unknown matrix 𝑴 .
+26
+50 100 150 200 250 300 350 400
+10
+−1
+10
+0
+ 
+ 
+Relative Error
+Relative Residual Error
+ Best Possible Relative Error Using the same rank
+50 100 150 200 250 300 350 400
+10
+−1
+10
+0
+ 
+ 
+Relative Error
+Relative Residual Error
+ Best Possible Relative Error Using the same rank
+(a) SVT (b) Noise aware variant (3.6)
+50 100 150 200 250 300 350 400
+0
+1
+2
+3
+4
+5
+k
+R
+an
+k
+ 
+ 
+SVT
+DS
+(c) Rank vs. iteration count
+Figure 2: Computational results for the city-to-city distance dataset. (a) Plot of the recon-
+struction errors from of the SVT algorithm. The blue dashed line is the relative error ∥𝑿𝑘 −
+𝑴∥𝐹 /∥𝑴∥𝐹 , the red dotted line is the relative residual error ∥𝒫Ω(𝑿𝑘 −𝑴)∥𝐹 /∥𝒫Ω(𝑴)∥𝐹
+and the black line is the best possible relative error achieved by truncating the SVD of 𝑴 and
+keeping a number of terms equal to the rank of 𝑿𝑘. (b) Same as (a) but with the iteration
+(3.6). (c) Rank of the successive iterates 𝑿𝑘; the SVT algorithm is in blue and the noise aware
+variant (3.6) is in red.
+6 Discussion
+This paper introduced a novel algorithm, namely, the singular value thresholding algorithm for
+matrix completion and related nuclear norm minimization problems. This algorithm is easy to
+implement and surprisingly effective both in terms of computational cost and storage requirement
+when the minimum nuclear-norm solution is also the lowest-rank solution. We would like to close
+this paper by discussing a few open problems and research directions related to this work.
+Our algorithm exploits the fact that the sequence of iterates {𝑿𝑘} have low rank when the
+minimum nuclear solution has low rank. An interesting question is whether one can prove (or
+disprove) that in a majority of the cases, this is indeed the case.
+It would be interesting to explore other ways of computing 𝒟𝜏 (𝒀 )—in words, the action of
+the singular value shrinkage operator. Our approach uses the Lanczos bidiagonalization algorithm
+with partial reorthogonalization which takes advantages of sparse inputs but other approaches are
+27
+Algorithm rank 𝑘𝑖 time ∥𝑴 −𝑴𝑖∥𝐹 /∥𝑴∥𝐹 ∥𝑴 −𝑿𝑘𝑖∥𝐹 /∥𝑴∥𝐹
+1 58 1.4 0.4091 0.4170
+SVT 2 190 4.8 0.1895 0.1980
+3 343 8.9 0.1159 0.1252
+1 47 2.6 0.4091 0.4234
+(3.6) 2 166 7.2 0.1895 0.1998
+3 310 13.3 0.1159 0.1270
+Table 5: Speed and accuracy of the completion of the city-to-city distance matrix. Here,
+∥𝑴 −𝑴𝑖∥𝐹 /∥𝑴∥𝐹 is the best possible relative error achieved by a matrix of rank 𝑖.
+possible. We mention two of them.
+1. A series of papers have proposed the use of randomized procedures for the approximation
+of a matrix 𝒀 with a matrix 𝒁 of rank 𝑟 [40, 44]. When this approximation consists of the
+truncated SVD retaining the part of the expansion corresponding to singular values greater
+than 𝜏 , this can be used to evaluate 𝒟𝜏 (𝒀 ). Some of these algorithms are efficient when the
+input 𝒀 is sparse [44], and it would be interesting to know whether these methods are fast
+and accurate enough to be used in the SVT iteration (2.7).
+2. A wide range of iterative methods for computing matrix functions of the general form 𝑓(𝒀 )
+are available today, see [36] for a survey. A valuable research direction is to investigate
+whether some of these iterative methods, or other to be developed, would provide powerful
+ways for computing 𝒟𝜏 (𝒀 ).
+In practice, one would like to solve (2.8) for large values of 𝜏 . However, a larger value of 𝜏
+generally means a slower rate of convergence. A good strategy might be to start with a value of
+𝜏 , which is large enough so that (2.8) admits a low-rank solution, and at the same time for which
+the algorithm converges rapidly. One could then use a continuation method as in [56] to increase
+the value of 𝜏 sequentially according to a schedule 𝜏0, 𝜏1, . . ., and use the solution to the previous
+problem with 𝜏 = 𝜏𝑖−1 as an initial guess for the solution to the current problem with 𝜏 = 𝜏𝑖 (warm
+starting). We hope to report on this in a separate paper.
+Acknowledgments
+J-F. C. is supported by the Wavelets and Information Processing Programme under a grant from DSTA,
+Singapore. E. C. is partially supported by the Waterman Award from the National Science Foundation
+and by an ONR grant N00014-08-1-0749. Z. S. is supported in part by Grant R-146-000-113-112 from the
+National University of Singapore. E. C. would like to thank Benjamin Recht and Joel Tropp for fruitful
+conversations related to this project, and Stephen Becker for his help in preparing the computational results
+of Section 5.2.2.
+References
+[1] J. Abernethy, F. Bach, T. Evgeniou, and J.-P. Vert. Low-rank matrix factorization with attributes.
+Technical Report N24/06/MM, Ecole des Mines de Paris, 2006.
+28
+[2] ACM SIGKDD and Netflix. Proceedings of KDD Cup and Workshop, 2007. Proceedings available online
+at http://www.cs.uic.edu/˜liub/KDD-cup-2007/proceedings.html.
+[3] Y. Amit, M. Fink, N. Srebro, and S. Ullman. Uncovering shared structures in multiclass classification.
+In Proceedings of the Twenty-fourth International Conference on Machine Learning, 2007.
+[4] A. Argyriou, T. Evgeniou, and M. Pontil. Multi-task feature learning. In Neural Information Processing
+Systems, 2007.
+[5] J. Bect, L. Blanc-Féraud, G. Aubert, and A. Chambolle, A ℓ1 unified variational framework for image
+restoration, in Proc. Eighth Europ. Conf. Comput. Vision, 2004.
+[6] S. Boyd, and L. Vandenberghe. Convex Optimization. Cambridge University Press, 2004.
+[7] J. Burkardt, CITIES – City distance datasets. http://people.sc.fsu.edu/˜burkardt/datasets/
+cities/cities.html.
+[8] J.-F. Cai, R. Chan, L. Shen, and Z. Shen. Restoration of chopped and nodded images by framelets.
+SIAM J. Sci. Comput., 30(3):1205–1227, 2008.
+[9] J.-F. Cai, R. H. Chan, and Z. Shen. A framelet-based image inpainting algorithm. Appl. Comput.
+Harmon. Anal., 24(2):131–149, 2008.
+[10] J.-F. Cai, S. Osher, and Z. Shen. Convergence of the linearized Bregman iteration for ℓ1-norm mini-
+mization. Math. Comp., to appear.
+[11] J.-F. Cai, S. Osher, and Z. Shen. Linearized Bregman iterations for compressed sensing. Math. Comp.,
+78(267):1515–1536, 2009.
+[12] J.-F. Cai, S. Osher, and Z. Shen. Linearized Bregman iterations for frame-based image deblurring.
+SIAM J. Imaging Sci., 2(1):226–252, 2009.
+[13] E. J. Candès, and F. Guo. New multiscale transforms, minimum total variation synthesis: Applications
+to edge-preserving image reconstruction. Signal Processing, 82:1519–1543, 2002.
+[14] E. J. Candès and B. Recht. Exact Matrix Completion via Convex Optimization, 2008.
+[15] E. J. Candès and J. Romberg. Sparsity and incoherence in compressive sampling. Inverse Problems,
+23(3):969–985, 2007.
+[16] E. J. Candès, J. Romberg, and T. Tao. Robust uncertainty principles: exact signal reconstruction from
+highly incomplete frequency information. IEEE Trans. Inform. Theory, 52(2):489–509, 2006.
+[17] E. J. Candès and T. Tao. Decoding by linear programming. IEEE Trans. Inform. Theory, 51(12):4203–
+4215, 2005.
+[18] E. J. Candès and T. Tao. Near-optimal signal recovery from random projections: universal encoding
+strategies? IEEE Trans. Inform. Theory, 52(12):5406–5425, 2006.
+[19] E. J. Candès and T. Tao. The Dantzig selector: statistical estimation when 𝑝 is much larger than 𝑛.
+Annals of Statistics 35:2313–2351, 2007.
+[20] E. J. Candès and Y. Plan. Matrix completion with noise. Submitted to Proceedings of the IEEE, March
+2009.
+[21] A. Chai and Z. Shen. Deconvolution: A wavelet frame approach. Numer. Math., 106(4):529–587, 2007.
+[22] R. H. Chan, T. F. Chan, L. Shen, and Z. Shen. Wavelet algorithms for high-resolution image recon-
+struction. SIAM J. Sci. Comput., 24(4):1408–1432 (electronic), 2003.
+[23] P. Chen, and D. Suter. Recovering the missing components in a large noisy low-rank matrix: application
+to SFM source. IEEE Transactions on Pattern Analysis and Machine Intelligence, 26(8):1051-1063, 2004.
+29
+[24] P. L. Combettes and V. R. Wajs. Signal recovery by proximal forward-backward splitting. Multiscale
+Model. Simul., 4(4):1168–1200 (electronic), 2005.
+[25] J. Darbon and S. Osher. Fast discrete optimization for sparse approximations and deconvolutions, 2007.
+preprint.
+[26] I. Daubechies, M. Defrise, and C. De Mol. An iterative thresholding algorithm for linear inverse problems
+with a sparsity constraint. Comm. Pure Appl. Math., 57(11):1413–1457, 2004.
+[27] I. Daubechies, G. Teschke, and L. Vese. Iteratively solving linear inverse problems under general convex
+constraints. Inverse Probl. Imaging, 1(1):29–46, 2007.
+[28] D. L. Donoho. Compressed sensing. IEEE Trans. Inform. Theory, 52(4):1289–1306, 2006.
+[29] M. Elad, J.-L. Starck, P. Querre, and D. L. Donoho. Simultaneous cartoon and texture image inpainting
+using morphological component analysis (MCA). Appl. Comput. Harmon. Anal., 19(3):340–358, 2005.
+[30] M. J. Fadili, J.-L. Starck, and F. Murtagh. Inpainting and zooming using sparse representations. The
+Computer Journal, to appear.
+[31] M. Fazel. Matrix Rank Minimization with Applications. PhD thesis, Stanford University, 2002.
+[32] M. Fazel, H. Hindi, and S. Boyd, Log-det heuristic for matrix rank minimization with applications to
+Hankel and Euclidean distance matrices. in Proc. Am. Control Conf., June 2003.
+[33] M. Figueiredo, and R. Nowak, An EM algorithm for wavelet-based image restoration. IEEE Transactions
+on Image Processing, 12(8):906–916, 2003.
+[34] T. Goldstein and S. Osher. The Split Bregman Algorithm for L1 Regularized Problems, 2008. UCLA
+CAM Reprots (08-29).
+[35] E. T. Hale, W. Yin, and Y. Zhang. Fixed-point continuation for l1-minimization: methodology and
+convergence. 2008. preprint.
+[36] N. J. Higham. Functions of Matrices: Theory and Computation. Society for Industrial and Applied
+Mathematics, Philadelphia, PA, USA, 2008.
+[37] J.-B. Hiriart-Urruty and C. Lemaréchal. Convex analysis and minimization algorithms. I, volume 305
+of Grundlehren der Mathematischen Wissenschaften [Fundamental Principles of Mathematical Sciences].
+Springer-Verlag, Berlin, 1993. Fundamentals.
+[38] R. M. Larsen, PROPACK – Software for large and sparse SVD calculations, Available from http:
+//sun.stanford.edu/˜rmunk/PROPACK/.
+[39] A. S. Lewis. The mathematics of eigenvalue optimization. Math. Program., 97(1-2, Ser. B):155–176,
+2003. ISMP, 2003 (Copenhagen).
+[40] E. Liberty, F. Woolfe, P.-G. Martinsson, V. Rokhlin, and M. Tygert. Randomized algorithms for the
+low-rank approximation of matrices. Proc. Natl. Acad. Sci. USA, 104(51): 20167–20172, 2007.
+[41] S. Lintner, and F. Malgouyres. Solving a variational image restoration model which involves ℓ∞ con-
+straints. Inverse Problems, 20:815–831, 2004.
+[42] Z. Liu, and L. Vandenberghe. Interior-point method for nuclear norm approximation with application
+to system identification. submitted to Mathematical Programming, 2008.
+[43] S. Ma, D. Goldfarb, and L. Chen. Fixed point and Bregman iterative methods for matrix rank mini-
+mization. Preprint, 2008.
+[44] P.-G. Martinsson, V. Rokhlin, and M. Tygert. A randomized algorithm for the approximation of
+matrices Department of Computer Science, Yale University, New Haven, CT, Technical Report 1361,
+2006.
+30
+[45] M. Mesbahi and G. P. Papavassilopoulos. On the rank minimization problem over a positive semidefinite
+linear matrix inequality. IEEE Transactions on Automatic Control, 42(2):239–243, 1997.
+[46] S. Osher, M. Burger, D. Goldfarb, J. Xu, and W. Yin. An iterative regularization method for total
+variation-based image restoration. Multiscale Model. Simul., 4(2):460–489 (electronic), 2005.
+[47] S. Osher, Y. Mao, B. Dong, and W. Yin. Fast Linearized Bregman Iteration for Compressed Sensing
+and Sparse Denoising, 2008. UCLA CAM Reprots (08-37).
+[48] B. Recht, M. Fazel, and P. Parrilo. Guaranteed minimum rank solutions of matrix equations via nuclear
+norm minimization. 2007. Submitted to SIAM Review.
+[49] J.-L. Starck, D. L. Donoho, and E. J. Candès, Astronomical image representation by the curvelet
+transform. Astronom. and Astrophys., 398:785–800, 2003.
+[50] K. C. Toh, M. J. Todd, and R. H. Tütüncü. SDPT3 – a MATLAB software package for semidefinite-
+quadratic-linear programming, Available from http://www.math.nus.edu.sg/˜mattohkc/sdpt3.html.
+[51] K.-C. Toh, and S. Yun. An accelerated proximal gradient algorithm for nuclear norm regularized least
+squares problems. Preprint, 2009.
+[52] C. Tomasi and T. Kanade. Shape and motion from image streams under orthography: a factorization
+method. International Journal of Computer Vision, 9(2):137–154, 1992.
+[53] P. Tseng. Applications of a splitting algorithm to decomposition in convex programming and variational
+inequalities. SIAM J. Control Optim., 29(1):119–138, 1991.
+[54] P. Tseng. A modified forward-backward splitting method for maximal monotone mappings. SIAM J.
+Control Optim., 38:431–446, 2000.
+[55] G. A. Watson. Characterization of the subdifferential of some matrix norms. Linear Algebra Appl.,
+170:33–45, 1992.
+[56] S. J. Wright, R. Nowak, and M. Figueiredo. Sparse reconstruction by separable approximation. Sub-
+mitted for publication, 2007.
+[57] W. Yin, S. Osher, D. Goldfarb, and J. Darbon. Bregman iterative algorithms for ℓ1-minimization with
+applications to compressed sensing. SIAM J. Imaging Sci., 1(1):143–168, 2008.
+31
+

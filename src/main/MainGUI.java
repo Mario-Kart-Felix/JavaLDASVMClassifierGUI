@@ -57,7 +57,8 @@ public class MainGUI extends javax.swing.JFrame {
 				this.labelFolderPathForClassifying, fcFolderForDocClassifying));
 		this.btnStartClassifying.addActionListener(new DocClassifyActionListener(this, this.btnStartClassifying,
 				this.btnStopClassifying, this.btnSelectFolderForClassifying, this.cbSelectModelForClassifying,
-				this.cbExpectedTopicLabelClassifying,fcFolderForDocClassifying, this.txtOverallLogClassifying, this.tableClassifyingResults));
+				this.cbExpectedTopicLabelClassifying, fcFolderForDocClassifying, this.txtOverallLogClassifying,
+				this.tableClassifyingResults));
 
 		// model training
 		JFileChooser fcFolderForModelTraining = new JFileChooser();

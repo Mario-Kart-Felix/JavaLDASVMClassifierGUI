@@ -1,0 +1,2111 @@
+Path planning for
+Robotic Mobile Fulfillment Systems
+Marius Merschformann∗1, Lin Xie†2, and Daniel Erdmann1
+1Paderborn University, Paderborn, Germany
+2Leuphana University of Lüneburg, Lüneburg, Germany
+June 29, 2017
+Abstract
+This paper presents a collection of path planning algorithms for real-
+time movement of multiple robots across a Robotic Mobile Fulfillment
+System (RMFS). Robots are assigned to move storage units to pickers at
+working stations instead of requiring pickers to go to the storage area.
+Path planning algorithms aim to find paths for the robots to fulfill the
+requests without collisions or deadlocks. The state-of-the-art path plan-
+ning algorithms, including WHCA*, FAR, BCP, OD&ID and CBS, were
+adapted to suit path planning in RMFS and integrated within a simulation
+tool to guide the robots from their starting points to their destinations
+during the storage and retrieval processes. Ten different layouts with a
+variety of numbers of robots, floors, pods, stations and the sizes of stor-
+age areas were considered in the simulation study. Performance metrics
+of throughput, path length and search time were monitored. Simulation
+results demonstrate the best algorithm based on each performance metric.
+1 Introduction
+Due to the increasingly fast-paced economy, an efficient distribution center plays
+a crucial role in the supply chain. From the logistics perspective the main task
+is to turn homogeneous pallets into ready-to-ship packages that will be sent to
+the customer. Traditionally, as some customers’ orders are received, pickers in
+different zones of a warehouse are sent to fetch the products, which are parts of
+several different customers’ orders. After that, the products should be sorted
+and scanned. Once all parts of an order are complete, they are sent to packing
+workers to finish packaging. An extensive overview of manual order picking
+∗marius.merschformann@uni-paderborn.de
+†lin.xie@leuphana.de
+1
+ar
+X
+iv
+:1
+70
+6.
+09
+34
+7v
+1 
+ [
+cs
+.A
+I]
+  2
+8 
+Ju
+n 
+20
+17
+systems can be found in [17]. As shown in [26], 50% of pickers’ time in these
+systems is spent on traveling around the warehouse. To ensure that the orders
+are shipped as fast as possible, automated storage and retrieval systems were in-
+troduced. An extensive literature review is provided by [21]. While using these
+systems offers a high potential throughput they also face certain drawbacks
+such as high costs, long design cycles, inflexibility and lack of expandability as
+pointed out by [30]. In order to improve or eliminate those disadvantages, au-
+tomated Robotic Mobile Fulfillment Systems (RMFS), such as the Kiva System
+([5], nowadays Amazon Robotics), have been introduced as an alternative order
+picking system in recent years. Robots are sent to carry storage units, so-called
+“pods”, from the inventory and bring them to human operators, who work at
+picking stations. At the stations, the items are packed according to the cus-
+tomers’ orders. [30] indicate that this system increases the productivity two to
+three times, compared with the classic manual order picking system. Moreover,
+the search and travel tasks for the pickers are eliminated. The first framework,
+”Alphabet Soup” was published by [11], which simulates such a system. This
+framework uses the classic method to solve the path planing problem, namely
+the A* search algorithm (see [10]). In another publication, the Kiva System is
+formulated as the classic Multi-Agent Pathfinding problem (MAPF) and this
+problem is solved with a bounded sub-optimal solver (see [2]).
+However, we formulate the problem slightly differently and we call it Multi-
+Agent Pathfinding Problem for mobile Warehousing Robots (MAPFWR for
+short). It is similar to the well-known MAPF problem but with some modi-
+fications. The description of this problem and its differences with MAPF will
+be discussed in the next section. The existing framework of [11] is extended in
+this paper with the cases of multiple floors, which are connected by elevators.
+Moreover we integrate a more realistic robot movement emulation by consider-
+ing the robot’s turning time and adjusted acceleration or deceleration formulas.
+Additionally, a new mathematical model is proposed in this work. In such a
+system, multiple decision problems have to be solved and coordinated effectively
+to ensure overall performance, such as path planning and task allocation. How-
+ever, for this work we fix all remaining decision mechanisms to certain default
+methods (see Section 5) and only alter the path planning method used. An
+efficient path-planning algorithm is important, since it aims at finding paths for
+robots to fulfill the requests without collisions or deadlocks, which is considered
+a major aspect of automation for storage and retrieval in a RMFS. The study
+reported in the paper aims at developing an integrated suite of path-planning
+algorithms to manage storage and retrieval processes in real time for RMFS.
+Moreover, the novel comparison of state-of-the-art path planning algorithms is
+shown to fulfill different requirements of such a system, namely throughput,
+path length and search time.
+The first part of the paper gives a mathematical description of the MAPFWR
+problem and a literature review of the related problem MAPF. Next, we investi-
+gate the properties of the search space of MAPFWR. After that, we describe the
+path-planning algorithms that we implement. Finally, we present experimental
+results obtained by our simulation framework.
+2
+2 Background
+This section first describes RMFS and the inherent decision problems in more
+detail. Next, the MAPFWR problem and its related problem, the MAPF prob-
+lem, is defined. At last, a literature review of MAPF is presented.
+2.1 Robotic Mobile Fulfillment System
+According to [9] the ”(...) basic requirements in warehouse operations are to
+receive Stock Keeping Units (SKUs) from suppliers, store the SKUs, receive
+orders from customers, retrieve SKUs and assemble them for shipment, and ship
+the completed orders to customers.” Using this definition a RMFS provides the
+temporal storage of SKUs, and their retrieval to fulfill incoming customer orders.
+The approach for this requirement is to use pods (shelf-like storage units) to
+store the inventory and bring these to replenishment and pick stations as they
+are required for insert and extract transactions of items. The basic layout of one
+floor in a RMFS is illustrated in Fig. 1. The pods are located at the storage area
+in the middle of the layout. The robot carries a pod by following waypoints to
+the replenishment station on the left side, where new items are inserted into the
+pod. After that, the pod is carried back to the storage area. Similar operations
+are done at the order picking station on the right-hand side, where items are
+picked to fulfill orders. The robots are guided by waypoints, which are typically
+connected by a grid-like graph (but not limited to it).
+Storage
+Retrieval
+Storage
+Replenishment
+Order picking
+Retrieval
+Figure 1: A basic layout of a RMFS based on the Kiva patent [12]
+In the control of such a system many different decision problems need to be
+overcome to sustain an overall efficiency (see [5]). Limiting the view only at
+the core of the operational decision problems we propose the abstract structure
+given by Figure 2 to support a better understanding of the problem interactions
+in a RMFS. As new item bundles shall be stored in the inventory a replenishment
+assignment controller needs to choose from which replenishment station these
+shall be inserted and a bundle storage assignment controller needs to determine
+a suitable pod to store it on. For a new customer order first only a pick station to
+3
+process it is chosen by an order assignment controller. The former process leads
+to insertion requests, while the latter leads to extraction requests. These can
+now be combined to tasks that shall be executed by a robot. While insert tasks
+can simply be determined by combining all requests with matching station and
+pod to a task, we need to select a pod to fulfill the extraction requests using a
+pick pod selection controller first to create extract tasks. The decision about the
+right pod to bring to a pick station is postponed, because it allows us to exploit
+more information that becomes available over time. In addition to the insertion
+and extraction requests that resemble the systems main purpose, park requests
+are the result of pods that need to be brought back to the inventory. For these
+a pod storage assignment controller determines a suitable storage location. The
+combination of requests to tasks and the allocation of them to robots is done
+by a task allocation controller. Most of the mentioned tasks require the robot
+to go from one location to another, which leads to trips from one waypoint in
+the system to another. For these trips a path planning controller is needed to
+ensure time-efficient, collision- and deadlock-free paths. As the last is the main
+focus of this work, fixed controllers are used for all other problem components to
+enable a working system while allowing a fair comparison of the path planning
+methods (see Section 5).
+insertion requests park requests extraction requests
+trips
+Order
+assignment
+Replenishment
+assignment
+Bundle storage
+assignment
+Pod storage
+assignment
+Pick pod
+selection
+Task
+allocation
+Path
+planning
+item bundles customer orders
+Figure 2: Overview of the core decision problems of a RMFS at operational
+scope
+4
+2.2 MAPFWR
+As mentioned in Section 1, we formulate path planning as the MAPFWR prob-
+lem, which will be described in this section.
+2.2.1 Problem input
+The main resources are given by the sets of pods b ∈ B and stations m ∈M :=
+MI ∪ MO (replenishment- and pick-stations). The agents in the described
+system are mobile robots r ∈ R. Therefore, robots and agents are used synony-
+mously in this work. These robots use a multi-layer planar graph G composed
+of waypoints w ∈ W as its vertices and edges e ∈ E connecting them. The edges
+of the transpose graph G−1 are denoted by E−1. Every layer of the graph repre-
+sents one tier h ∈ H of an instance. All positions across the tiers are denoted by(
+pHit , p
+X
+it , p
+Y
+it
+)
+∈
+⋃
+h∈H
+{h}×
+[
+0, LXh
+]
+×
+[
+0, LYh
+]
+(i.e. the current tier the robot is on,
+the x- and the y-coordinate) for movable entities i ∈ R ∪ B (robots and pods)
+depending on the current time t ∈ T and bounded by the length LXh and width
+LYh of the respective tier h. The time-independent position
+(
+pHi , p
+X
+i , p
+Y
+i
+)
+of im-
+movable entities i ∈ W ∪M is defined analogously. At this, the time-horizon
+is continuous (T := R+0 ). At the starting time t0 every robot, pod and station
+is located at an initial position V Ii ∈ W. The time-dependent distance between
+two entities i and j is defined as the euclidean norm and denoted by dE (i, j, t)
+(analogously the time-independent distance is dE (i, j)). Additionally, the speed
+of the robots is expressed by vrt ∈ R+0 and orientation by ort ∈ {0, 2π}. The
+shape of the robot is abstracted by a circle with radius LRr ∈ R+. The angular
+velocity the robot is turning by at time t is indicated by ωrt ∈ R. Further-
+more, every robot has a constant acceleration rate
+−→
+A r ∈ R+, deceleration rate←−
+A r ∈ R+ and maximal velocity V r ∈ R+. The robot can change its orientation
+clockwise and counterclockwise by the maximal angular velocity of Ωr ∈ R+.
+This work abstracts from the rotational momentum.
+The multiple tiers of an instance can be connected by elevators l ∈ L, which
+are able to transport a robot between two waypoints w and w′ in the constant
+time TLlww′ , which depends on the height between the two waypoints to cover
+and the elevator’s speed. During this time all waypoints associated with the
+elevator are blocked. When a robot stops at a station the time for handling
+one item is assumed to be constant. We distinguish the time for handling one
+physical item to fulfill an order at a pick station TOm ∈ R+0 with m ∈MO and the
+time to handle an incoming bundle of items at a replenishment station T Im ∈ R+0
+with m ∈ MI . The time for picking up and setting down a pod is given by
+the constant value TB . Analogous to the robot a pod’s shape is abstracted by
+a circle with the radius LRb . A pod not currently carried by a robot can be
+stored at one of the parking positions w ∈ WP ⊂ W. The choice of the parking
+position is determined by another planning component that is not discussed any
+further in this work.
+The length of the edges of the graph is set a priori and has a lower bound
+5
+determined by the maximal radii of the robots and pods (see Eq. 1).
+∀ (w1, w2) ∈ E : dE (w1, w2) ≥ max
+i∈R∪B
+max
+i′∈R∪B\{i}
+LRi + L
+R
+i′ (1)
+With this requirement, all robots and pods can be arbitrarily distributed among
+the waypoints.
+2.2.2 Task
+During runtime a robot can be asked to bring a pod to a station (to insert an
+item or extract it), to park a pod or to rest at a certain waypoint. Every one of
+these jobs can be decomposed into subtasks as shown in Tab. 1. Note that the
+first two subtasks of an insert or extract task can be skipped, if the robot already
+carries the right pod at the time the task is assigned to it. All subtasks, except
+for the move subtask, block the robot at its current position for the constant
+period of time described above. Only the move subtask has to be immediately
+considered here as it requires the generation of a path respecting the movement
+of other robots in the system. This path starts at the current location of the
+robot and ends at the destination waypoint specified by the move subtask. Every
+time a robot completes a task it is immediately assigned another task by the
+remaining planning mechanisms, which may involve a new move subtask for
+which it requires the calculation of a path to the new destination waypoint.
+Table 1: The task types and their subtask types
+Task type Subtask types
+Insert (move, pickup,move, put)
+Extract (move, pickup,move, get)
+Park (move, setdown)
+Rest (move)
+2.2.3 Constraints
+In the following, constraints that have to be adhered during path generation
+are described. At first, robots always have to be located either on a node or an
+edge (see Eq. 2).
+∀r ∈ R, t ∈ T : ∃w ∈
+{
+W | pHw = pHrt
+}
+: pw = prt∨
+∃ (w1, w2) ∈
+{
+E | pHw1 = p
+H
+w2 = p
+H
+rt
+}
+:
+dE (w1, r, t) + d
+E (r, w2, t) = d
+E (w1, w2) (2)
+Next, the robots cannot overlap with each other at any time (see Eq. 3) as this
+would immediately result in a collision. This is analogously defined for the pods
+in Eq. 4.
+∀r1, r2 ∈ R, t ∈ T : pHr1t = p
+H
+r2t =⇒ d
+E (r1, r2, t) ≥ LRr1 + L
+R
+r2 (3)
+6
+∀b1, b2 ∈ B, t ∈ T : pHb1t = p
+H
+b2t =⇒ d
+E (b1, b2, t) ≥ LRb1 + L
+R
+b2 (4)
+The function fO (b, t) : B × T → R ∪ WP determines the current owner of a
+pod, which can be either a robot carrying it or a storage location it is stored at.
+For this we also require the injectivity of the function, because a pod can only
+be carried or stored by one entity (see Eq. 5).
+∀b1, b2 ∈ B, t ∈ T : fO (b1, t) = fO (b2, t) =⇒ b1 = b2 (5)
+Using this constraint, the position of the pod can be inferred by the position of
+either the robot or the storage location (see Eq. 6).
+∀b ∈ B, t ∈ T :
+(
+∃r ∈ R : fO (b, t) = r =⇒ pbt = prt
+)
+∨
+(
+∃w ∈ WP : fO (b, t) = w =⇒ pbt = pwt
+)
+(6)
+This also infers that a robot carrying a pod cannot pass waypoints at which a
+pod is stored. Conversely, a robot not carrying one can move beneath pods,
+thus, using waypoints at which a pod is stored. Furthermore, the turning of a
+robot is only allowed on a waypoint while it is not moving (see Eq. 7). Hence,
+a robot moving along an edge has to be oriented towards the same direction as
+the edge (see Eq. 8). These constraints limit the movement of the robots to the
+graph similarly to MAPF, but with the difference that a robot can be located
+between two waypoints at a time t.
+∀r ∈ R, t ∈ T : ωrt 6= 0 =⇒ vrt = 0 ∧ ∃w ∈ WP : pw = prt (7)
+∀r ∈ R, t ∈ T, (w1, w2) ∈
+{
+E | pHw1 = p
+H
+w2 = p
+H
+rt
+}
+:
+prt 6= pw1 ∧ prt 6= pw2 ∧ dE (w1, r, t) + dE (r, w2, t) = dE (w1, w2)
+=⇒ ort = atan2
+(
+pYw1 − p
+Y
+rt, p
+X
+w1 − p
+X
+rt
+)
+∨ort = atan2
+(
+pYw2 − p
+Y
+rt, p
+X
+w2 − p
+X
+rt
+)
+(8)
+Under these principles the movement of a robot can be described as a sequence
+of an optional rotation, an acceleration, an optional top-speed and a deceleration
+phase. The time it takes the robot to rotate depends on the rotation angle ϕ
+and is defined in Eq. 9.
+tR (r, ϕ,Ωr) := ϕΩ
+−1
+r with r ∈ R, ϕ,Ωr ∈ R+0 (9)
+Respecting the robots constant acceleration rate and the following equation
+expresses the time that is consumed while a robot is moving straight (according
+to [20]). At this, two cases have to be distinguished. In the first case the driving
+distance d is sufficiently long to fully accelerate the robot. This is the case, if
+the following is true (see Eq. 10).
+d ≥ d̃ with d̃ :=
+−→
+A r
+2
+(
+V r
+−→
+A r
+)2
++
+←−
+A r
+2
+(
+V r
+←−
+A r
+)2
+(10)
+7
+This leads to the time being a sum of the acceleration phase, full speed phase
+and deceleration phase time. If the distance is too short to fully accelerate, the
+time only depends on the acceleration and deceleration phases. Equation 11
+comprises both cases.
+tD
+(
+r, d,
+−→
+A r, V r,
+←−
+A r
+)
+:=
+
+V r−→
+Ar
++
+d−
+−→
+Ar
+2
+(
+V r−→
+Ar
+)2
+−
+←−
+Ar
+2
+(
+V r←−
+Ar
+)2
+V r
++ V r←−
+Ar
+if d ≥ d̃√
+d
+−→
+Ar
+2 +
+−→
+A2r
+2
+←−
+Ar
++
+√
+d
+←−
+Ar
+2 +
+←−
+A2r
+2
+−→
+Ar
+if d < d̃
+(11)
+Every replenishment station, pick station and elevator can only be used by one
+robot at a time. For storing bundles at an replenishment station m the robot
+is blocked for a constant time T Im during the execution of subtask put at the
+station’s position. Analogously, the robot waits a constant time TOm during the
+subtask get at pick stations. For traveling with elevator l from w to w′ the robot
+is blocked for TLlww′ time-units at w with w and w
+′ contained in Wl. During
+execution of the system every robot that has just finished a task requests a new
+one. The decision of which task the robot has to execute next is determined
+by another component and given by αTA(r, t) with all possible tasks denoted
+by Tab. 1. For all robots with the subtask move, a path must be planned. A
+path πrt of robot r consists of a sequence of triples (w, stop, wait). The triple
+describes the actions of the robot with w ∈ W as the waypoint to go to next,
+stop ∈ {true, false} denoting whether the robot stops at the waypoint and
+wait ∈ R+0 determining the time the robot waits at the waypoint if stop = true
+before executing the next action. Let π′rt ⊆ πrt be a subpath for which the
+first and last triples denote stop = true and for all others stop = false. Let
+(w1, . . . , wn) be the node sequence of the subpath π
+′
+rt, then two subsequent
+nodes have to be connected by an edge and all edges have to be parallel to each
+other. Equations 12 and 13 comprise this requirement.
+∀i = 0, . . . , n− 1 : (wi, wi+1) ∈ E (12)
+∀i = 0, . . . , n− 2 : atan2
+(
+pXwit − p
+Y
+wi+1t, p
+Y
+wit − p
+X
+wi+1t
+)
+= atan2
+(
+pYwi+1t − p
+Y
+wi+2t, p
+X
+wi+1t − p
+X
+wi+2t
+) (13)
+Table 2 shows the different conditions that need to be valid for completing
+a subtask for robot r at time t. A change of the value for function fO (b, t)
+is thereby only possible at time t = t′ at which either the subtask pickup or
+setdown is completed. The most relevant subtask is depicted by move, because
+it depicts the operation of going from one waypoint to another. Furthermore,
+the subtask pickup lifts a pod such that the robot can carry it. The reverse
+operation of setting down a pod is depicted by setdown. At last, the subtask
+put stores a number of item bundles in a pod while the subtask get picks a
+number of items from a pod.
+8
+Table 2: Conditions for switching from the respective subtask to a succeeding
+one.
+Subtask Condition
+move prt′ = pw ∧ vrt′ = 0
+pickup ∃w ∈ WP ∀t ∈
+[
+t′ − TB , t′
+]
+: fO (b, t) = w ∧ prt = pbt = pw
+setdown ∃b ∈ B ∀t ∈
+[
+t′ − TB , t′
+]
+: fO (b, t) = r ∧ prt = pbt = pw
+put ∀t ∈
+[
+t′ − TOm , t′
+]
+: fO (b, t) = r ∧ prt = pbt = pm
+get ∀t ∈
+[
+t′ − T Im, t′
+]
+: fO (b, t) = r ∧ prt = pbt = pm
+2.2.4 Objectives
+One of the main objectives for a RMFS is a high throughput of customer orders.
+Since we are also considering replenishment operations, we combine the number
+of picked items with the number of stored bundles to our main metric of handled
+units overall. This is supported by the robots bringing suitable pods to the
+stations to complete the aforementioned insert and extract requests. Hence,
+more time-efficient paths for the robots increase the system’s throughput by
+decreasing the waiting times at the stations. Note that we assume that the
+subtasks pickup, setdown, get and put underlie constant times, therefore the
+minimization can be achieved by the time-efficient paths, except for possible
+queuing time at stations. It is similar to the function sum-of-cost in [6], where
+driving and waiting times are aggregated for the finding paths. Therefore, we
+are also especially interested in the average time for completing a trip. At last,
+the average distance covered per trip is important when considering wear of the
+robots and as an indicator for energy consumption. This is also similar to the
+fuel function in [6].
+2.3 Related work
+The similar problem MAPF is widely discussed in the literature, with applica-
+tions from video games (see [14]) to exploration of three-dimensional environ-
+ments with quadrotor drones (see [27]). In this problem, a set of agents is given,
+and each of them has its start and end positions. It aims at finding the path
+for each agent without causing collisions. In many cases minimizing the sum of
+the timesteps that are required for every agent to reach its goal is also consid-
+ered as an additional goal. [22] describe this system as generally consisting of
+a set of agents, each of which has a unique start state and a unique goal state.
+Moreover, the time is discretized into timepoints and the time for rotation of
+each agent is set to zero. Also, it is assumed that the time for crossing each arc
+is constant. These differ to our problem, that means our problem MAPFWR
+considers continious timepoints and each agent requires time to rotate and the
+time for crossing each arc might be differed for each agent. Therefore, MAPF
+can be considered as a special case of our problem.
+Since our problem is similar to the MAPF problem, we use in this paper
+the algorithms that were used to solve the MAPF problem and are suitable to
+9
+our problem after some modifications. That includes sub-optimal and optimal
+algorithms (see Sections 2.3.1 and 2.3.2). The modifications can be found in
+Section 4. The state-of-the-art MAPF path planning algorithms can be found
+in [22].
+2.3.1 Sub-optimal algorithms
+Finding an optimal solution for the MAPF problem is proven to be NP-hard
+(see [31]). The standard admissible algorithm for solving the MAPF problem
+is the A*-algorithm, which uses the following problem representation. A state
+is a n-tuple of grid locations, one for each of n agents. The standard algorithm
+considers the moves of all agents simultaneously at a timestep, so each state
+potentially has bn legal operators (b is the number of possible actions). With
+the increasing number of agents the state space grows exponentially, therefore,
+there are many sub-optimal solvers in the literature for solving this problem
+more quickly. Most of them are based on variations of the A*-algorithm, which
+modify either the search space or the procedure of the A*-algorithm. Windowed
+Hierachical Cooperative A* (WHCA*), introduced by [24], uses a space time
+reservation table, reserve resumable A* heuristic and windowing to reduce the
+cost of resolving all conflicts, while Flow Annotation Replanning (FAR), intro-
+duced by [28], adds a flow restriction to limit the movement along a given row or
+column to only one direction, which avoids head-to-head collisions. The short-
+est path for each agent is implemented by the A*-algorithm independently, and
+a heuristic procedure is used to repair plans locally, if deadlocks occur. This
+method shows similar results to WHCA*, but with lower memory capacities
+and shorter runtime. [7] introduce a simple meta-algorithm called Biased Cost
+Pathfinding (BCP), which assigns a priority to each agent. For each agent, A*
+is used to find the optimal path without considering collisions. This algorithm
+extends h(n) with an additional virtual cost to control collisions. There are
+some other sub-optimal algorithms, which are not adopted in this paper, since
+the MAPFWR problem considers continuous timepoints. Therefore, our prob-
+lem cannot immediately be formulated as SAT, such as in [8]. Additionally,
+our problem cannot be solved by hybrid solver MAPP presented by [29], be-
+cause MAPP is only proven to be complete for graphs which have the slidable
+property. The instances we use to solve MAPFWR do not fulfill this property,
+because the alternate connectivity restriction cannot be guaranteed and is also
+subject to change as a result of changing the locations of pods in between exe-
+cutions of the path planning algorithm. The limitation of TASS [13] is that this
+algorithm is complete only for tree graphs, while Push and Swap of [18] is only
+complete if a maximum of |V | − 2 agents are considered in the graph (see [4]).
+2.3.2 Optimal algorithms
+There are some optimal solvers for MAPF discussed in the literature, such as
+the algorithm of [25] and Conflict Based Search (CBS) introduced by [22]. It
+is still possible to find the optimal solutions for real-world problems within an
+10
+acceptable time: for example, if the paths found by an A*-based algorithm do
+not contain any collisions. It is easier to find optimal solutions if the number
+of agents is small compared to the size of the graph. In order to reduce the
+number of nodes, which are generated but never expanded, Standley introduced
+an operator decomposition (OD). An intermediate node is introduced to ensure
+only the moves of a single agent are considered when a regular A* node is
+expanded. Moverover, Standley introduced the Independence Detection (ID)
+framework to reduce the effective number of agents. The idea behind this is to
+detect independent groups of agents. Two groups of agents are independent, if
+an optimal solution can be found by a low-level solver (such as OD) for each
+group and no conflict occurs between them. Initially, each agent is a group and
+an optimal solution is found for it. The agents, which have conflicts with each
+other, are merged into one group and new solutions are found for them, and so
+on. This method ends if one solution without collision is found, or all agents
+belonging to one group. This algorithm is called OD&ID in the rest of this
+paper. The idea of CBS is similar to that of the branch-and-bound algorithm
+(see [16]), where MAPF is decomposed into a large number of constrained single-
+agent pathfinding problems. It aims at finding a minimum-cost constraint tree
+without collisions. This algorithm works on two levels, namely high level and low
+level. At the high level, conflicts are found and constraints are added, while an
+optimal path is found for each agent at the low level, which is consistent with the
+new constraints. The low-level and high-level searches are best-first searches;
+however, [1] introduced Enhanced Conflict-Based Search (ECBS), which uses
+focal searches (see [19]) for both levels. This algorithm is sub-optimal, but with
+shorter runtime compared with CBS, since the focal search considers a subset
+of the best search and expands a node with f(n) ≤ fmin. The parameter  is
+defined by the user. One additional optimal solver, which we don’t adopt for our
+problem, is ICTS [23], since it is applicable only to the problems with discrete
+objective functions. Cohen et al. combine highways with ECBS for solving the
+Kiva system. According to the authors, the combination has been demonstrated
+to decrease computational runtime and costs compared with ECBS, since ECBS
+is not suitable for a large number of agents in the Kiva system.
+Most of these algorithms, which are either optimal or sub-optimal solvers,
+are implemented in this paper for solving the MAPFWR and compared by
+different performance metrics within our simulation framework for RMFS, such
+as throughput, trip time, trip length and search time.
+3 Search space
+In this section we discuss the properties of search space S as a state space. Note
+that S is different from the graph G. The state in search space S is noted as n,
+while the node in Graph G is noted as w. As described in Section 2.3 for MAPF,
+there are four possible actions for agents in the grid graph and one action for
+waiting. Therefore, the grade of the search space is O(5k), where k is the number
+of agents. However, the grade of the search space of MAPFWR can be infinite,
+11
+since each agent can get any orientation and can wait for any interval. Therefore,
+we assume that the waiting time is limited to a given interval TW ∈ R+. So the
+cost of the arc (n1, n2) for a waiting agent r is c
+W
+r (n1, n2) = T
+W , while the cost of
+the arc for a moving agent is cMr (n1, n2) = t
+R (r, ϕ,Ωr) + t
+D
+(
+r, s,
+−→
+A r, V r,
+←−
+A r
+)
+.
+At this, the times for rotation and driving are considered, and s is the Euclidean
+distance.
+With the discreted waiting time, the grade of the search space in MAPFWR
+is similar to the grade of the search space in MAPF, but the time for each
+action differs from one agent to another. An example illustrated in Fig. 3
+shows the reservation for a path from w1 to w3 with waiting time 0 at w2.
+The marked area (blue) means that agents cannot go through this node for
+the given time, e.g., because another agent already has an ongoing reservation
+for the node at the time. For MAPF in the left-hand graph, two actions are
+required, namely “move to w2” and “move to w3”. However, there are two
+possible cases for MAPFWR. For the case in the central graph (where a quick
+stop at w2 is done) we get the path: (w1, true, 0), (w2, true, 0), (w3, true, 0). And
+for the case in the right-hand graph (without stopping at w2) we get the path:
+(w1, true, 0), (w2, false, 0), (w3, true, 0). w2 in the central graph is blocked for a
+longer time due to the times for acceleration and deceleration necessary for the
+stop; instead, the reservation of w2 in the right-hand graph is possible without
+overlapping. The same problem can also appear in the reservation for a sequence
+of nodes.
+0
+1
+2
+3
+4
+5
+6
+7
+1 2 3
+Ti
+m
+e
+Nodes
+0
+1
+2
+3
+4
+5
+6
+7
+1 2 3
+Ti
+m
+e
+Nodes
+0
+1
+2
+3
+4
+1 2 3
+Ti
+m
+e
+Nodes
+Interval tree
+Reservation
+Existing reservation
+Conicting reservation
+Agent position
+Figure 3: The reservation for the path from w1 to w3 with waiting time 0 at w2.
+From left to right: MAPF, MAPFWR with stopping at w2, MAPFWR without
+stopping at w2
+Therefore, we provide two solutions. The first solution is that we generate a
+move action only for connected nodes and a wait action with a fixed given time.
+Once a conflict occurs, we search the move actions in the same direction until we
+get the first node with a move action without conflict, or no further nodes exist
+in that direction. Therefore, the maximum grade of states in the search space
+for an agent is equal to the grade of nodes in the graph. The second solution
+is extending reservations to the next node in the same direction by assuming a
+continuous drive. Fig. 4 shows an example to generate the successors for the
+node w4, namely w5, w6, w7. If we ignore the wait actions, the number of nodes
+corresponds to the number of states. The cost for w5 is equal to the sum of the
+drive time until w4, the time for rotating by the angle β and the moving time
+12
+between w4 and w5. This is analogously done for w7 with the angle γ. For the
+calculation of the cost of w6, a backward search is until the last rotation is done
+(in this example: w1). We can infer that the agent had to stop at this node.
+Thus, the cost of w6 is determined by adding up the sum of cost up to w1, the
+time for rotating by the angle α, and the drive time from w1 to w6 without
+stopping. The backward search can be done in O(1), if we keep track of the last
+rotation or waiting action for each node.
+s
+1 2 3 4 6
+7
+5
+Figure 4: One example for the calculation for the costs of the successors of w4
+In the second solution above, we consider only times (costs), so we can
+abandon the wait actions. Moreover, we don’t need to generate and check the
+reservations. In this case, the grade of the search space in our problem is equal
+to the grade of search space in MAPF.
+Now we have to prove that the A*-Algorithm is complete and admissible
+in the search space of our problem, because the algorithms we discuss in the
+next section are based on the A*-Algorithm. An algorithm is complete if it
+terminates with a solution in case one exists, while an algorithm is admissible
+if it is guaranteed to return an optimal solution whenever a solution exists.
+According to the properties shown in [19], when the search space is a tree,
+there is a single beginning state and a set of goal states, the cost of the path
+is the sum of the costs of all arcs in this path, and the heuristic function h
+meets the following conditions: h(n) ≥ 0 ∀n and h(n) = 0 if n is a goal state.
+Moreover, each state should have a finite number of successors and the cost
+c(n1, n2) of each arc (n1, n2) in the search space should meet the condition
+c(n1, n2) ≥ δ ≥ 0. According to the problem description in Section 2 and this
+section, the search space of our problem fulfills most of the conditions, except
+the last one. Therefore, we only have to prove that the cost of each arc in S
+has a finite lower bound δ (see the proof in Section A). So the A*-Algorithm is
+complete and admissible in the search space of our problem.
+In the next section, we discuss the path planning algorithms; most of them
+use the A*-algorithm for searching a path from actual location w0 to goal loca-
+tion we for an agent r. The heuristic function h(n) is defined as:
+h(n) = tD
+(
+r, dE (w0, we) ,
+−→
+A r, V r,
+←−
+A r
+)
+where dE (w0, we) is the Euclidean distance from w0 to we. Since the moving
+13
+time increases monotonically during the trip and the Euclidean distance satisfies
+triangle inequality, hence, the heuristic function h(n) is consistent.
+4 Algorithm design
+In this section we first describe the data structure that we used for all path-
+planning algorithms. After that, path-planning algorithms are described in
+terms of their differences from the existing algorithms for the MAPF problem,
+including WHCA*, FAR, BCP, OD&ID and CBS. Finally, a method for resolv-
+ing deadlocks is described.
+4.1 Data structure
+We describe in this subsection the reservation table, which is introduced in [24]
+for solving the MAPF problem. According to Silver, the impassable space-time
+regions are marked in the reservation table with the form (x, y, t) and they are
+stored in a hash table with random keys. Note that x, y are coordinates and t
+is a timepoint. The left-hand graph in Fig. 5 illustrates the reservation table
+used in [24], where the reservations of robot 1 and 2 are marked with green and
+blue colors. These impassable regions should be avoided during searches of the
+next robots. The node w is blocked if one robot waits at it. If one robot goes
+through the arc (w1, w2), then its corresponding nodes w1 and w2 are blocked
+until the robot goes past the arc. Hence, the distance for robots traveling in a
+convoy is at least one arc.
+We adopt the reservation table to store occupied regions, because it is a
+sparse data structure, which considers space and time. Since our problem does
+not consider discrete and constant timepoints, a different implementation com-
+pared with [24] is illustrated in the right-hand graph of Fig. 5. For each node in
+the graph, one interval tree (see [3], pp. 350–357) is generated, if a robot waits
+at it or goes through it (this is also called lazy initialization). Also, a set of
+intervals is included in each interval tree and each interval has its starting time
+ts and ending time te. The search for one interval (t1, t2) at node w and the
+test of overlapping can be realized using a binary search with runtime O(log n).
+An example of the reservation for a robot in the reservation table is shown in
+Fig. 6. The robot begins with node w2 at time t0 and ends with node w6. Once
+the robot travels between two nodes, both nodes are blocked (vertical bars).
+Moreover, it takes longer time to speed up and slow down. This data structure
+is used in all path-planning algorithms in the following subsections.
+4.2 WHCA*
+The main difference to the existing WHCA*, applied in MAPF in [24], is the
+modified reservation table (see Section 4.1). Moreover, we calculate costs in-
+dividually for our problem. We describe below the adjusted WHCA* for the
+MAPFWR problem.
+14
+1 2
+1 2
+1
+1
+2
+2
+2
+1
+0
+Figure 5: Data structure for reservations in MAPF of [24] vs. MAPFWR path
+planning
+0
+1
+2
+3
+4
+5
+6
+1 2 3 4 5 6 7
+Ti
+m
+e
+Node
+Interval tree
+Reservation
+Agent position
+1 2 3 4 5 6 7
+Figure 6: An example in the reservation table for the path from w2 to w6
+We have an arbitrary robot r, which is located on the node ws on time t
+in the graph, and its goal is the node we. The A*-algorithm finds an optimal
+path for this robot from ws to we, if the heuristic function h(ws) is admissible.
+For now, we assume that the nodes in the graph are equal to the states in the
+search space; moreover, we do not consider the other robots and wait actions.
+h2D (ws) is calculated with Eq. (14).
+h2D (ws) := t
+D
+(
+r, dE (ws, we) ,
+−→
+A r, V r,
+←−
+A r
+)
+(14)
+where the time is estimated by calculating the driving time for the euclidean
+distance while considering acceleration and deceleration times. Thus, it is im-
+possible for a robot to cover the distance between the two waypoints in shorter
+time. We use this heuristic function h2D (we) in the Reverse Resumable A*
+(RRA*) algorithm, which searches the path from we to ws in G−1; therefore the
+heuristic function hRRA∗ (we) is equal to h
+2D (we). g
+RRA∗(we) is the function
+that calculates the sum of time for rotation and moving from we to ws like
+discussed above. This algorithm ends when ws enters the closed set C
+RRA∗ and
+we do not consider the rotations of ws and we here. As explained in [24], the
+reason why we use RRA* in WHCA* is that the result of RRA* provides better
+assumption for the paths without collisions. It is a lower bound of the solutions
+found in WHCA*, because the solution found in RRA* is optimal for a single
+15
+agent. If ws enters the closed set C
+RRA∗ then the value of the heuristic function
+is equal to the value of the cost function of RRA* to the goal node; otherwise
+the search continues until wi ∈ CRRA
+∗
+. The heuristic function hWHCA
+∗
+(ws)
+used by WHCA* can now be defined like in Eq. (15).
+hWHCA
+∗
+(ws) =
+{
+gRRA
+∗
+(ws) if ws ∈ CRRA
+∗
+RRA∗(we, E
+−1, ws, g
+RRA∗ , hRRA
+∗
+) other cases
+(15)
+In the following, we describe two variants of WHCA*, namely volatile and
+non-volatile WHCA*. The first one was used in [24], which we describe in
+Section 4.2.1 with some modifications. However, this variant is time-consuming,
+since the calculated paths are not stored for the next execution and it is suitable
+for the case where the moving obstacles change the graph in the next execution,
+such as in a computer game. In our case, the obstacles are deterministic and
+predictable. Therefore, we develop the latter, non-volatile WHCA*, in Section
+4.2.2.
+4.2.1 Volatile WHCA*
+Algorithm 1 shows how volatile WHCA* works. Let B′ ⊂ B be a subset of pods,
+which are not carried by robots, while R′ ⊂ R is a subset of robots, which have
+subtask move. Also, the priority pOr for each robot r is set to 0 at the beginning
+of the algorithm (line 1). The search repeats until a path πrt is found for each
+robot r at time t or the number of iterations i reaches the given iteration limit I.
+In each iteration, the reservation table rT is initialized with fixed reservations
+(using the function fR (R′)). These are called “fixed”, because for each already
+moving robot r ∈ R′ there are nodes that are required to be reserved until r
+reaches its next planned stop. Then, the robots are sorted based on three criteria
+(see the sort-function fS
+(
+R′, pOr
+)
+). The first one is the priority of the robot,
+while the second one is to check whether a robot carries a pod. These robots are
+preferred because they cannot move beneath other pods, i.e. they have fewer
+paths available to get to their goals. The last criterion is the distance towards
+the goal, preferring robots nearer to their goal. The set J contains all blocked
+nodes. The positions of the robots r ∈ R \R′ are blocked and stored in the set
+J . Additionally, if the robot r is carrying a pod (i.e., the function fC (r, t) is
+true), then the nodes all other pods b ∈ B′ are stored at are blocked and stored
+in J as well. Once the destination of the robot r has been changed, RRA*
+should be recalculated with the actual set J (see line 9). Also, wait actions are
+added based on its priority (through the function fW
+(
+r, b2pOr −1c
+)
+). After that
+a new path is expanded using A∗ST , which considers space and time (see Section
+3). If a path was found (πr 6= ∅), then the reservation table rT is updated
+(fAR
+(
+πr, r
+T
+)
+), otherwise the priority of this robot r should be increased (see
+line 12).
+For each robot, we search a sequence of actions in the search graph to get to
+the goal without a collision. We assume that a robot stops at node wi and then
+we generate the following states in the search graph. They are only generated,
+16
+Algorithm 1: WHCA∗v(t, w,R′,B′, I)
+1 foreach r ∈ R′ do pOr ← 0
+2 i← 1
+3 while i ≤ I ∨ ∃r ∈ R′ : πr = null do
+4 rT ← fR (R′), fS
+(
+R′, pOr
+)
+5 foreach r ∈ R′ do
+6 J ← fP (R \R′)
+7 if fC (r, t) then J ← J ∪ fP (B′)
+8 if fDC (r) then
+9 RRA∗(r,J ),πr = fW
+(
+r, b2pOr −1c
+)
+10 πr = πr
+⋃
+A∗ST (t, w, r, r
+T ,J , gWHCA∗ , hWHCA∗)
+11 if πr 6= ∅ then fAR
+(
+πr, r
+T
+)
+12 else pOr ← pOr + 1
+13 i← i+ 1
+14 return π
+if they do not block any robots. Moreover, the states, which are in conflict
+with existing reservations in the reservation table, cannot be generated as well.
+But we consider the reservation table only within time window w; after that
+time window, the rest of the paths calculated by RRA∗ are used. We search a
+sequence of actions for each robot iteratively; if we cannot find a sequence of
+actions for a robot without conflicts, then the priority of that robot is increased
+and we restart the search.
+Fig. 7 shows an example of evasion, where robot r1 tries to move from s1
+to g1, while robot r2 tries to move from s2 to g2. Also, we follow the criteria
+of sorting that we discussed above. Moreover, we assume in this example that
+the time to go through an arc is one timepoint. The time window w is 10 in
+this example. We begin with the robot r1, and we get the following reservation
+with the form [beginning time, ending time]: [0,1] for w3; [0,2] for w2; [1,3] for
+w1. For the robot r2 we do not get any reservations without collision, since [0,1]
+should be reserved for it. Therefore, we increase the priority of r2. Here, we
+get a deadlock, because each robot tries to reach another’s beginning node. To
+solve this deadlock, the robot with the higher priority should at first choose the
+wait action. According to line 9 in Algorithm 1, the length of the wait robot
+grows exponentially with the priority. In this example, r1 in the fourth iteration
+gets the priority 1 and r2 gets the priority 2. Therefore, the reservation of r2 is
+done as follows: [0,2] for w2; [1,3] for node w3; [2,3] for w4. After that, r1 can
+find a path without collisions, namely the path 3-5-3-2-1. In another case, if we
+try the robot r2 in the first iteration, then the deadlock can be solved as well.
+17
+1 2 3 4
+5
+2 1 21
+Figure 7: An example of evasion, where robot r1 tries to move from s1 to g1,
+while robot r2 tries to move from s2 to g2
+4.2.2 Non-volatile WHCA*
+As mentioned before, the volatile variant in the previous subsection has a prob-
+lem in that the existing path and reservation for each robot are recalculated in
+each execution of the algorithm. This occurs already if only one robot with a
+move action does not have a path. Instead of that, the non-volatile variant of
+WHCA* stores the existing path and reservation for each robot, which brings a
+much shorter runtime. However, reusing the existing paths might cause a prob-
+lem for generating new paths, since we cannot do any modification of existing
+paths to adopt the new ones. A comparison between the volatile and non-volatile
+variants of WHCA* can be found in the next section. Alg. 2 shows the process
+of the non-volatile variant. The set R′ ⊂ R is a subset of robots, which has
+subtask move and does not have a path yet. First of all, they are sorted anal-
+ogously to how they are sorted in the volatile variant (function fS (R′)). Also,
+the reservation table rT is reorganized with the function fRR
+(
+rT
+)
+. This means
+that all future reservations of the robots in need for a new path are dropped
+(see Section 4.1). Then, we find a path for each robot iteratively (similar to
+the volatile variant). Moreover, we check at the end of each path search for
+the robot r whether a final reservation is possible (function fAFR (r)). A final
+reservation blocks the nodes, where the last action occurs. Hence, a path with
+only a sequence of wait actions is always possible. By doing this, we can find a
+solution without prioritizing.
+Algorithm 2: WHCA∗n(w,R′,B′, I)
+1 fS (R′), fRR
+(
+rT
+)
+2 foreach r ∈ R′ do
+3 J ← fP (R \R′)
+4 if fC (r, t) then J ← J ∪ fP (B′)
+5 if fDC (r) then RRA∗(r,J )
+6 πr = πr
+⋃
+A∗ST (t, w, r, r
+T ,J , gWHCA∗ , hWHCA∗), fAR
+(
+πr, r
+T
+)
+,
+fAFR
+(
+rT
+)
+7 return π
+Now we apply this algorithm to the example in Fig. 7. The final reservation
+does not guarantee to find a path for the robot r1, since w2 is blocked for
+r2. Such conflict might often occur if we consider a large number of robots.
+18
+Therefore, we increase the heuristic costs of the node, which is on the shortest
+path of another robot, for robot r (see Eq. 16). So the robot r1 does not stay
+at w3 but at w5, since w3 is on the shortest path of r2, and a higher heuristic
+cost is considered on w3.
+hWHCA
+∗
+p = h
+WHCA∗(wi) + cp|{r′ ∈ R′|r′ 6= r ∧ wi ∈ πRRA
+∗
+(r′, wr)}| (16)
+4.3 FAR
+The FAR algorithm from [28] was used to calculate paths in a flow-annotated
+search graph for the MAPF problem. Each grid graph can be converted to a
+flow-annotated graph, but some rules should be held to ensure the connectivity
+of the graph (see [28]). The flow-annotated graph is necessary for the FAR
+algorithm to detect deadlocks and to resolve them. The graph for MAPFWR
+is not necessarily a grid graph; therefore it is not possible to convert it to a
+flow-annotated search graph. However, we use a warehouse layout as in [15],
+which contains some properties of a flow-annotated graph (see Section 5.1.1).
+In the following part of this subsection, we describe two methods to adjust the
+FAR algorithm for our problem.
+Wang and Botea’s idea is to use the A*-algorithm to find paths for robots
+for as long as possible without collisions. The reservation table of [24] is used
+to store and recognize collisions. Algorithm 3 shows how FAR works. Similarly
+to WHCA*, the paths of all robots r ∈ R′ with subtask move are planned
+iteratively. Recall that B′ is the set of pods, which are not being carried by
+robots. Initially, the reservation table rT stores all existing reservations of all
+robots to their next nodes and final reservations for these (returning from the
+function fFR (R′)). As soon as a path is generated for a robot r, the final
+reservations in rT will be deleted (function fD
+(
+r, rT
+)
+). The algorithm RRA∗
+is restarted with the actual block nodes in J . From the resulting path the
+first Hop is extracted. The Hop is a sequence of actions, which include rotate,
+move from a starting node and stop at an ending node. This ending node is
+considered as the next beginning node for the recalculation of the path. This
+differs from the original idea of FAR, which stops at each node and recalculates
+the path there. Since we consider the physical properties of robots, it makes
+more sense to use the Hop. The function fHOP
+(
+RRA∗(r,J ), rT
+)
+returns the
+Hop (line 5). If the Hop does cause collisions, it is shortened until it is possible
+to submit it to the reservation table. If the Hop does not contain any nodes,
+then the returning value r′ is the robot who blocks the next node. If no path is
+found in RRA* (π(r) = ∅), then the robot r′ is considered as the next r. If it is
+the first time, then the robot r will wait for a given time interval (a wait action
+is added to the path πr through the function f
+AW (πr)). The relation (r, r
+′)
+means that a robot r waits for another robot r′. Such a relation is established
+if no Hop is found for the robot r and removed again as soon as one is found. If
+there is a circle of the transitive closure of the relation from r (returning from
+the function fRC (r, r′)) or the robot r waits more than the given waiting time
+TW , then an evasion strategy fE (r) should be called. The evasion strategy
+19
+returns an alternative path without wait actions. In the following subsections,
+two evasion strategies are described. At the end of the FAR algorithm, the
+final reservations will be stored in the reservation table again (using function
+fAFR
+(
+rT
+)
+).
+Algorithm 3: FAR(t, w,R′,B′, TW )
+1 rT ← fFR (R′)
+2 foreach r ∈ R′ do
+3 fD
+(
+r, rT
+)
+, J ← fP (R \R′)
+4 if fC (r, t) then J ← J
+⋃
+fP (B′)
+5 (π(r), r′)← fHOP
+(
+RRA∗(r,J ), rT
+)
+6 if πr = ∅ then
+7 if fGA (πr) 6= wait then fAW (πr)
+8 else
+9 if fRC (r, r′) ∨ t > TW then fE (r)
+10 fAFR
+(
+rT
+)
+11 return π
+4.3.1 Evasion strategy 1: rerouting
+In this strategy we try to find a new path for a robot r to escape from a deadlock.
+The node, at which the next blocked robot stands, is stored to J . Then, a new
+path is generated again. If another robot is blocked on this new path, then this
+rerouting starts again. The number of calls for rerouting is limited by a given
+number. If the number of calls exceeds that given number or no path is found
+due to the blocked nodes, then this robot r has to wait for a given time period.
+This method is called FARr in the remainder of this paper.
+4.3.2 Evasion strategy 2: evasion step
+Wang and Botea explain that a deadlock occurs if all four nodes of a square
+are occupied by robots, and each robot wants to exchange nodes with each
+other. In the flow-annotated graph, each robot has two arcs to leave the actual
+node. If one arc causes the deadlock with other robots, then another arc should
+be chosen. In our case, we choose a random arc, which does not cause any
+deadlocks. After the robot has gone through that selected arc, it should wait
+for a random time between 0 and TW . If that arc does not exist, then the robot
+should simply stay and wait for a given time. This strategy is called FARe in
+the remainder of this paper.
+20
+4.4 BCP
+Geramifard et al. describe BCP as a meta-algorithm for the path planning of
+each robot. Since it has only a few restrictions, we adopt it directly in our prob-
+lem. As shown in Algorithm 4, each robot with the subtask move is initialized
+with a heuristic function h as shown in Eq. (14). BCP changes the function
+until a runtime limit TR is reached or paths without any collisions are found.
+In each iteration, the reservation table is initialized with fixed reservations. A
+path is determined by A∗S for each robot in the two-dimensional search space
+(without considering time) while considering blocked nodes. If there is no path
+found for a robot, then the robot has to wait for a given time period (line 8).
+As long as a path is found for the robot r, the reservations will be stored in
+the reservation table. If the reservation is not possible, since another robot r′
+already has a reservation of this node w, then the heuristic function will be
+modified to increase the value of the robot r on w. This causes the search to
+consider alternative paths. If there are multiple collisions (detected through the
+function fDC
+(
+r, rT
+)
+), then the first one is always chosen by function fGC (πr, r).
+Also, the cost of hBCPr is updated (function f
+C
+(
+c, hBCPr
+)
+). If BCP stops due
+to a reached runtime limit, at least one robot’s path contains a collision. This
+collision is detected during simulation, further execution of the path is stopped
+and BCP is called again. Hence, we need a lower bound of runtime between
+two calls, such that the robot can wait at the node. The deadlock can be solved
+with the method shown in Section 4.7.
+Algorithm 4: BCP(t, w,R′,B′, TR)
+1 foreach r ∈ R′ do hBCPr ← h
+2 while t ≤ TR do
+3 rT ← fR (R′)
+4 foreach r ∈ R′ do
+5 J ← fP (R \R′)
+6 if fC (r, t) then J ← J ∪ fP (B′)
+7 π(r)← A∗S(r,J , g, hBCPr )
+8 if π(r) = ∅ then fAW (πr)
+9 else
+10 if fDC (πr, r) then c← fGC (πr, r), fC
+(
+c, hBCPr
+)
+11 if c = ∅ then return π
+12 return π
+4.5 OD&ID
+When determining the next action for all agents the grade of the search space
+is O(bk), where k is the number of robots and b is the number of actions. As
+mentioned in Section 2, intermediate states are introduced in [25] to reduce
+21
+the number of generated states in this algorithm. We describe in the following
+subsections the modified operator decomposition and independence detection
+for MAPFWR.
+4.5.1 Operator decomposition (OD)
+We consider continuous times in MAPFWR, hence, full-value states cannot be
+reached in OD. Each action of a robot requires an individual time interval.
+Therefore, it is possible that from one state to its following state, all robots are
+located on different timepoints. So we define that each robot r has an action
+in state n before a time stamp trn is reached. In the initial state n0, all robots
+have a set of empty actions and the time stamp tr0 for each robot r is equal to 0.
+From one state to its following state, the time stamp is increased with the time
+of the action, which the robot selects, while the time stamps of the other robots
+remain unchanged. g(n) is the sum of times from n0 to n, while h(n) is the
+sum of estimated values for all robots to reach their goal nodes. These values
+are calculated by RRA* without considering collisions (similar to WHCA* in
+Section 4.2).
+In the initial state, a robot is chosen randomly to generate the next state,
+since the time stamps of all robots are set to 0. In other cases, the robot with
+the lowest time stamp is chosen to generate the next state. The following state
+is generated for each action that does not cause any collisions. The reservation
+table is also used here to detect collisions. The reservation table is initially
+empty and gets populated each following state of this robot by the reservations of
+all other robots that end after trn. In order to generate paths without collisions,
+a final reservation is required after the last reservation. For each possible action
+of a robot, the resulting reservation is tested for collisions. If there is no collision,
+then the time stamp is increased correspondingly and the following state is
+generated. Finally, the reservation table is emptied and the following state
+is considered. If all states are generated for a robot, then the A*-algorithm
+searches for the next state without any successors. After this selection, the
+robot with the lowest time stamp will be selected and the following state is
+generated, and so on.
+The OD is not suitable for real-time problems, therefore, several stopping
+criteria are defined to limit the runtime. First of all, the OD stops if a state is
+reached where all robots arrive at their goal nodes. It also means that all paths
+are free of collisions. Secondly, the OD also stops if a path is found for each robot
+within a predefined time limit. This is similar to the time limit of WHCA*, but
+the searches of following states in OD are simultaneous, not iterative. The third
+stopping criterion is that the maximum number of expanded states is reached.
+In the second and third stopping criteria, the state is selected from a search
+space S ′ ⊂ S, which is defined in Eq. 17,
+S ′ =
+{
+n ∈ S | max
+r∈R
+trn ≥
+maxn′∈S maxr∈R trn′
+2
+}
+(17)
+where the set S ′ includes all states, whose selected paths reach into the second
+22
+half of the expanded time interval.
+For better understanding of OD, the search space of A* with OD is shown in
+Fig. 8 for the same example that is illustrated in Fig. 7. Recall that a robot r1
+begins with w3 and ends with w1, while a robot r2 begins with w2 and ends with
+w4. Let
+−→
+A r,
+←−
+A r and V r be 1 for all r ∈ R. Moreover, the length of each arc is
+also equal to 1. Therefore, the moving time can be calculated as the number of
+the arcs plus 1. The time of a rotation by 360◦ also is 1. The length of a wait
+action here is 5. The final reservation is used in this example as well. In the
+initial state n0, the moving time of both robots is 3, and r1 has to rotate by 90
+◦.
+Therefore, we get the value of f(n0) 6.25. There, the time stamps of r1 and r2
+are equal to 0, so we can select one of them randomly. In this example we firstly
+choose r1, which has three possible actions, moving to w5 (n1) or w4 (n2) or w5
+(n3). However, r1 cannot reach w2 through the final reservation. Also, the cost
+of n2 is cheaper than n1. Thus, n2 is selected as the expanded state. In this
+state, tr2n2 is equal to 0, therefore the actions for r2 will be selected. For this
+robot, the reservation of the move action on w3 is [0, 2] and the final reservation
+on w4 is [0,∞). Thus, r2 can either move to w1 or wait. In this example, we can
+see the influence of the length of the wait action on the solution. If the length
+is too small, then there are too many states and the second stopping criterion
+is reached without generating a good solution. On the contrary, the expansion
+of state n1 can happen.
+1 2 3 4
+5
+1 2 3 4
+5
+1 2 3 4
+5
+1 2 3 4
+5
+1 2 3 4
+5
+1 2 3 4
+5
+1 2 3 4
+5
+g( n0 )
+h( n0 )
+f( n0 )
+= 0
+= 6.25
+= 6.25
+= 0t0r1
+= 0t0r2
+n0
+g( n2 )
+h( n2 )
+f( n2 )
+= 2.25
+= 7.5
+= 9.75
+= 2.25t2r1
+= 0t2r2
+n2
+g( n3 )
+h( n3 )
+f( n3 )
+= 5
+= 6.25
+= 11.25
+= 5t3r1
+= 0t3r2
+n3
+g( n1 )
+h( n1 )
+f( n1 )
+= 2
+= 8.75
+= 10.75
+= 2t1r1
+= 0t1r2
+n1
+g( n5 )
+h( n5 )
+f( n5 )
+= 7.25
+= 7.5
+= 14.75
+= 2.25t5r1
+= 5t5r2
+n5
+g( n4 )
+h( n4 )
+f( n4 )
+= 4.75
+= 9
+= 13.75
+= 2.25t4r1
+= 2.5t4r2
+n4
+Figure 8: The search space of A* with OD for the case where a robot r1 begins
+with w3 and ends with w1, while a robot r2 begins with w2 and ends with w4
+4.5.2 Independence detection (ID)
+The runtime of OD increases exponentially with the number of robots (see [25]).
+Therefore, Standley introduced ID, which considers disjoint subsets of robots.
+This means the paths can be planned for each subset of robots independently.
+Initially, each robot is considered as its own group and for each robot a path
+is generated with OD. In each iteration, the generated paths of all groups are
+tested to determine whether they are free of collision. If a collision occurs
+23
+between two groups, these two groups are merged into one group. Then, new
+paths are generated for the new groups. This repeats until either all groups can
+be combined without any collisions or there is only one group remaining.
+4.6 CBS
+The algorithm CBS is introduced by [22], and uses the constraint tree to dissolve
+conflicts gradually. Each state in the constraint tree has three properties: one
+constraint, a solution including a set of paths for all robots and the cost. CBS is
+a meta-algorithm, which uses the components of a path-planning algorithm to
+find paths in three dimensional search space, while some nodes are blocked for
+a given time. Therefore, the algorithm A∗ST is used as in WHCA*. The initial
+state of the CBS is that a path is found for each robot. There, no restrictions
+about the conflicts, i.e. collisions, are considered. The corresponding cost of
+such a state is the sum of costs of all paths of all robots. A state is considered
+as generated, if a path for each robot is found. Such generated states will
+be selected for expansion, if they contain conflicts between their paths. I.e., a
+conflict occurs for a path, if the reservation of a robot r1 for w overlaps with that
+of a robot r2 for the same node. A new interval for w is calculated based on the
+maximum ending time and the minimum beginning time of both reservations.
+Now, two successor states are generated and restricted using this interval. In
+the first, a new path is searched for robot r1, which is free of overlaps with the
+new calculated interval. Then, the same is done for robot r2.
+It is efficient that the paths and their corresponding costs are calculated once
+for the initial state, since only the cost of a new path for a robot is updated in
+each following state, and the paths of other robots remain. The cost of a state
+is calculated based on a δ-evaluation. And only the new restriction is stored
+to each following state. In order to hold all restrictions for a state, the tree is
+traversed from the parent states to the initial state. The same is done to get the
+path of a state. Recall that, a path for each robot is found in the initial state.
+The CBS method is similar to the branch-and-bound algorithm, which in-
+cludes some selection strategies (see [16]). The best-first strategy was selected
+in [22]. Additionally, we apply breadth-first and depth-first strategies to find
+feasible solutions faster, because MAPFWR has to be solved in a real-time
+environment.
+The CBS algorithm stops, if a collision-free solution is found. A solution for
+MAPF is optimal if an optimal path-planning solver is used and the best-first
+search is applied as well. However, such a statement is no longer applicable for
+the CBS algorithm used to solve our problem, since the restrictions include an
+arbitrary limit to the length of reservations. Moreover, an early termination
+is required for the application in a real-time environment, because an optimal
+solution is rarely found for a large number of potential collisions. Therefore, the
+runtime of this algorithm is limited. It is possible that no feasible solution is
+found before termination. In this case, we return the solution with the longest
+time interval until the first collision. Right before the collision would occur CBS
+is called again to determine a new solution.
+24
+4.7 Resolving deadlocks
+All the path-planning algorithms we have developed have a runtime limit and
+timeout is required between two executions. Therefore, it is possible that no
+path can be found or the path has only wait actions. Moreover, most of the
+algorithms above, except FARe, are deterministic, thus, these results are re-
+peated at each call, which might cause an interruption of the system. In order
+to resolve deadlocks, we keep track of the time each robot approached its cur-
+rent node. If the robot does not leave the node within a given time, then we
+randomly choose a neighboring node that is not blocked or reserved. If such a
+node exists, it is assigned to the robot as its next goal. Moreover, it is possible
+that the robot has only one node to select and the method produces a path that
+includes the original node again. In this case, both nodes are blocked, and other
+robots do not have a chance to go through them. Therefore, a random waiting
+time is required, which is evenly distributed in [0, TW ]. Thereby, the robots,
+which stand closely to each other, can move apart.
+5 Simulation study
+In this section we first describe our simulation framework while also defining pa-
+rameters of the experimental setup. Furthermore, we discuss the computational
+results and compare the different applied methods.
+5.1 Simulation framework
+We use an event-driven agent-based simulation to capture the behavior of RMFS.
+The 2D- und 3D-visualizations of the simulation are shown on the left and right
+sides of Fig. 9 respectively, where 3D-visualization is shown for two tiers. The
+details of the layout will be described later in this section. The framework is
+based upon the concept by [11]. In addition to the original publication our
+extended framework allows the simulation of instances with multiple floors, an
+updated acceleration/deceleration behavior of the robots that also considers
+turning times (see attachment for a more detailed physics definition) and the
+modeling of more realistic inventory and order characteristics. Furthermore,
+methods for all decision problems (see Section 2.1) can be flexibly combined.
+To investigate the effectiveness in conjunction with the path planning methods
+described in this work we fix the methods for the other decision problems to the
+following simple policies. This means that orders are assigned to pick stations
+randomly (order assignment), bundles are assigned to replenishment stations
+randomly (replenishment assignment), bundles are assigned to pods randomly
+(bundle storage assignment), pods are send to random free storage locations
+(pod storage assignment), pods are selected for picking by the number of re-
+quests that can be completed with them (pick pod selection) and the robots
+work for all stations equally, but with a preference for pick stations (task allo-
+cation). As mentioned in Section 2.1, all of these decisions ultimately result in
+25
+simple requests for the robots to complete; e.g., an order present at a station re-
+sults in a demand for a certain item. This requires a suitable pod to be brought
+to this station. Thus, a path from its position to the pod and further on to the
+station needs to be generated for the robot executing the task.
+(a) Detailed 2D view (b) 3D overview
+Figure 9: Screenshots of the simulation visualization
+Due to the focus on path planning a backlog of orders of constant length is
+available at all times, i.e., a new customer order is generated as soon as another
+one is finished. Hence, the system is being kept under pressure and robots may
+always have a task to execute. The same is done for generating new bundles
+of items such that the inventory does not deplete. The number of SKUs is also
+kept low (100 SKUs) to reduce the risk of stock-outs and to maintain a more
+stable system during the simulation horizon.
+For each of the methods mentioned above a path planning engine is imple-
+mented as a wrapper that acts like an agent of the simulation. It is responsible
+for passing necessary information about the current state of simulation to the
+methods and coordinates the calls to the planning algorithms. In the update
+routine of the path planning agent (see Alg. 5) first the reservation table is
+reorganized to remove past reservations and then the embedded path planning
+algorithm is executed. This is only done, if there is no ongoing timeout and
+there is at least one robot requesting a new path. A robot will request a new
+path, if it is assigned to a new task with a new destination or the execution of
+its former path failed. Like mentioned before, the execution of a path may fail,
+if paths that are not collision-free are assigned to the robots. In this case the
+path planning engine will abort the execution of the path to avoid an imminent
+collision. For this reassurance again the reservation table is used.
+5.1.1 Layout
+The layout of the instances used for the experiment are built by a generator
+based on the work of [15]. Mainly three different areas can be identified within
+the layout (see Fig. 10). First, an inventory area is built, which contains all pod
+26
+Algorithm 5: Update(t,R, rT , TT )
+1 fRR
+(
+rT
+)
+2 if
+(
+t′ + TT < t
+)
+∧ (∃r ∈ R : π(r) = ∅) then
+3 ExecutePathPlanner()
+4 t′ ← t
+storage locations WP (indicated by blue squares). These are created in blocks
+of eight waypoints and connected by other waypoints by bidirectional edges.
+The waypoints of the aisles in between are connected by directional edges such
+that a cycle emerges around each block up to the complete inventory area. The
+directions of the edges are denoted by arrows. Hence, a robot, which is not
+carrying a pod, can almost freely navigate below stored pods, while a robot
+carrying a pod must adhere to a certain cyclic flow. This area is surrounded
+by a hall-area (long dashes) that serves as a highway for robots traveling from
+storage locations to stations. That offers some space to reduce congestion effects
+in front of the stations. The last area (short dashes) is used for buffering robots
+inbound for the stations. This area also contains all replenishment (yellow
+circles) and pick stations (red-circles). Each station has its own queue that is
+managed by a queue manager instead of path planning; i.e., as soon as a robot
+enters this area path planning gets deactivated and instead a queue manager
+is responsible for moving up robots towards the station while also exploiting
+shortcuts, if possible.
+Figure 10: Basic layout of instances built by the generator
+27
+5.2 Experiment setup
+For the experiment we use 10 instances with different layouts (see Table 3). The
+names of the instances are derived from the number of tiers, replenishment sta-
+tions, pick stations, robots and pods. All of them adhere to the layout described
+above, but with minor modifications. The instance 1-12-20-128-1965 uses a lay-
+out that surrounds the inventory area with the hall and buffer areas leading to
+more stations compared to the storage locations. Furthermore, instances 2-8-
+8-64-1100 and 3-12-12-96-1650 contain two, respectively, three floors connected
+by elevators. The elevators are positioned similar to the stations and transport
+one robot at a time from one floor to the next one in 10 seconds. Instance 1-6-
+14-106-1909 is shaped like a ’L’ while 1-6-16-146-2726 contains ’holes’ emulating
+obstacles of a warehouse building structure in its waypoint graph. The instances
+1-4-16-144-1951 and 1-1-3-48-795 have all their stations positioned at only one
+side. The other instances use a form of the default layout described above in
+different sizes. For all instances roughly 85% pods are used when compared
+to available storage locations. This allows for more options when dynamically
+determining a storage location each time a pod is brought back to the inven-
+tory. Additionally, we provide the ratio of robots per station. This is useful
+as a first intuition for the potential of congestion effects, i.e.: the more robots
+are used in less space the more conflicts may occur. Furthermore the number
+of waypoints in the graph is shown. Note that these are all waypoints of the
+system, including the storage locations shown separately as well as other special
+purpose waypoints (e.g. the ones used for stations and their queues).
+Table 3: Characteristics of the instances used in the experiment
+Name tiers bots bots
+per
+station
+pods storage
+locations
+waypointsrepl.
+stations
+pick
+stations
+1-1-3-48-795 1 48 12.0 795 936 2112 1 3
+1-4-4-32-550 1 32 4.0 550 648 1640 4 4
+1-4-16-144-1951 1 144 7.2 1951 2296 5528 4 16
+1-6-14-106-1909 1 106 5.3 1909 2248 5654 6 14
+1-6-16-146-2726 1 146 6.6 2726 3208 8120 6 16
+1-8-8-64-1040 1 64 4.0 1040 1224 3064 8 8
+1-8-8-96-1502 1 96 6.0 1502 1768 4104 8 8
+1-12-20-128-1965 1 128 4.0 1965 2312 6088 12 20
+2-8-8-64-1100 2 64 4.0 1100 1296 4144 8 8
+3-12-12-96-1650 3 96 4.0 1650 1944 6216 12 12
+All robots of the experiment share the same acceleration and deceleration
+rate of 0.5ms2 and a top-speed of 1.5
+m
+s . The time needed for a full rotation is
+set to 2.5s. Robots and pods are emulated as moving circles with a diameter of
+70cm, respectively 90cm. The times for picking up a pod, setting down a pod,
+storing a bundle of items (T Im) and picking a single item (T
+O
+m) are all constant
+28
+and set to 3s, 3s, 10s and 10s, respectively. The following default parameters
+are used for the different methods, which are chosen according to the results of
+a preceding grid search on a small subset of possible parameter values. For all
+methods the length of a wait step is set to 2s while the timeout for a single path
+planning execution is set to 1s, i.e., the path planning algorithm is called at
+most once per second. For WHCA∗v and WHCA
+∗
+n the time window is set to 20s
+and 30s, respectively. For BCP the biased cost is set to 1. The search method
+used for CBS is best first. The maximal node count for OD&ID is set to 100.
+For the assessment of performance we first look at the sum of item bundles
+stored and units picked at the replenishment and pick stations (handled units).
+This metric also resembles the work that is done by the system during simulation
+horizon, which relates to the throughput being a typical goal for such a parts-
+to-picker system. Hence, the implied goal for path planning is to generate paths
+that can be executed very fast such that the stations wait for robots bringing
+pods as little as possible. For more detailed insights we added the average length
+of the computed paths and the average time it took the robots to complete them
+(trip length & trip time). At last we look at the wall-clock time consumed by
+the different methods (wall time).
+5.3 Simulation results
+In the following we discuss the computational results of the experiment described
+above. Each combination of method and instance is simulated for 24 hours with
+10 repetitions to lessen the effect of randomness caused by other controllers and
+simulation components. In table 4, the arithmetic mean of the proposed metrics
+is given per method and across all instances. Additionally, the timeout of 1s
+per path planning execution implies that the overall wall-clock time usable by a
+method is limited by the simulation horizon of 86.400s. In table 5 the handled
+units of the methods in average per instance are shown. This is done to allow
+further insights about the performance of the method related to the instance
+characteristics.
+Table 4: Performance results for the different methods and metrics (averages
+across repetitions and instances, ordered by handled units)
+Method Handled units Trip length (m) Trip time (s) Wall time (s)
+WHCA∗v 81011.43 52.76 67.61 9555.28
+BCP 80469.76 53.69 69.53 81027.86
+FARr 78260.82 54.17 71.07 1272.06
+WHCA∗n 77326.95 53.58 71.27 2184.29
+OD&ID 75380.12 52.48 72.94 14780.25
+FARe 71942.03 54.91 77.51 473.72
+CBS 60205.38 53.31 90.21 65560.65
+In terms of handled units, WHCA∗v is the most successful one, followed
+by BCP. We can also see that the trip time highly relates to the number of
+29
+Table 5: Handled units per instance and method (averages across repetitions,
+green ≡ best / red ≡ worst per row)
+Instance WHCA∗v BCP FARr WHCA
+∗
+n OD&ID FARe CBS
+1-1-3-48-795 30332 30186 30955 30359 29641 30763 29437
+1-4-4-32-550 29820 28787 28230 28835 28357 27481 29669
+1-4-16-144-1951 142482 139722 136946 124404 118436 94683 53156
+1-6-14-106-1909 126878 124571 124391 124412 122263 121788 86965
+1-6-16-146-2726 149142 146119 147903 147188 144540 145789 112812
+1-8-8-64-1040 50313 49174 47456 47767 47299 44742 48334
+1-8-8-96-1502 62120 61939 57862 58693 56857 53700 46633
+1-12-20-128-1965 85463 82024 80497 80870 77644 74796 60705
+2-8-8-64-1100 54383 53026 51944 52907 52021 50756 54188
+3-12-12-96-1650 79183 78940 76425 77836 76744 74923 78968
+handled units, i.e. the shorter the time is for completing a trip the more units
+are handled overall. This does not hold for the trip length, i.e. the length of
+the trips lies in a close range, but a shorter one is not necessarily faster. This
+is mainly impacted by the more important coordination of the robots. Thus,
+shorter trips may cause more congestion and longer waiting times for the robot
+while it is executing a path. The wall time consumed by the methods differs
+significantly. While FARe in average uses less than ten minutes to plan the
+paths for all robots for 24 hours, going from 85.57s for the 1-4-4-32-550 layout
+up to 1008.59s for the 1-6-16-146-2726 layout. In contrast, BCP almost always
+uses the complete allowed runtime. This means that BCP does plan reasonably
+efficient paths, but is not able to completely resolve all conflicts up until the
+destination of all of them. This can also be seen when looking at the percentage
+of executions that ended in a timeout (see Tab. 6). It is almost impossible for
+BCP to generate completely conflict-free paths for the layout instances of quite
+realistic size before the timeout of 1s. We can only observe this for the smallest
+instances of the set. However, the paths successfully planned by BCP until the
+timeout takes effect are competitive. The FAR methods cause the longest trip
+lengths, but the FARr variant can still compete with the others in terms of
+handled units and trip time. This is especially interesting when looking at the
+wall time consumed by it. Hence, the FAR method is a candidate to consider
+when controlling instances much larger than the ones considered in this work.
+Furthermore, the strategy of FAR to avoid head to head collisions is working
+well (in comparison) for instances that are more crowded with robots, i.e. have a
+higher robot to station ratio (see Tables 5). The rather poor performance of CBS
+is a reason of the method not being able to generate efficient paths within the
+time limit for the quite large instances of the pool. This even causes cascading
+congestion effects, if a robot is not assigned any path and will block others even
+longer. In contrast, we see a good performance of CBS for the smaller instances
+with a lower robot to station ratio (see Tab. 5). The WHCA∗n variant is still
+performing well while only consuming roughly 23 % wall-clock time of WHCA∗v.
+30
+However, a longer trip time is the result of the robots being forced to plan their
+trips based on the existing ones without the possibility to find overall improved
+paths. The method OD&ID achieves reasonable performance while consuming
+acceptable wall-clock time across all instances.
+Table 6: Extended method comparison
+Method Station idle time Timeouts Memory used (MB)
+average maximum
+WHCA∗v 44.8 % 7.0 % 120.63 227.62
+BCP 46.2 % 97.1 % 86.01 147.76
+FARr 46.4 % 0.0 % 105.43 193.88
+WHCA∗n 47.0 % 0.0 % 128.98 254.78
+OD&ID 48.2 % 0.2 % 99.22 183.13
+FARe 50.1 % 0.0 % 101.26 193.11
+CBS 56.5 % 65.9 % 77.00 125.60
+Furthermore, we can observe that the idle time of the station, i.e. the time
+the station is not busy picking items, respectively not busy storing bundles, is
+another metric that is closely related to the trip time of the methods (see Tab.
+6). To some extent, this means that stations will idle less, if robots reach them
+faster. Regarding the fairly high idle times note that the experiment is designed
+in a way that increases pressure on the path planning components, i.e. the con-
+trollers for the other components are causing longer trips and reasonable times
+for handling pods at the stations. This is done, because there is a natural upper
+bound for handling items and item bundles at the stations given by the constant
+time it needs to process one unit of each. Hence, it is not possible to process
+more units than given by the following simple upper bounds, which would lead
+to a bottleneck obscuring the impact of the path planning components when
+reached. For pick stations the time for picking one item limits the throughput
+per hour (UBOm :=
+3600
+TOm
+) while for replenishment stations it is limited by the
+time for storing one item bundle (UBIm :=
+3600
+T Im
+). Summing up upper bounds
+of the stations leads to an overall upper bound for handled units for the system
+(UB :=
+∑
+m∈MO UB
+O
+m +
+∑
+m∈MI UB
+I
+m). Like mentioned before some of the
+methods reach the given runtime timeout much more than others. Looking at
+the average timeouts of the different methods across all instance we can observe
+that BCP almost always uses its complete runtime given. However, it still ob-
+tains results of reasonable quality. In contrast, CBS also reaches it’s runtime
+very often but is not able to obtain efficient paths within time except for the
+small instances of the set. For the latter also less timeouts occur for CBS. Except
+for WHCA∗v all other methods virtually never run into a timeout. Interestingly
+OD&ID consumes more wall time than WHCA∗v but faces less timeouts. Since
+the timeouts per instance are very similar for WHCA∗v this suggests that certain
+states during the simulation horizon cause spikes in the wall time consumed that
+lead to these timeouts. At last, we show the maximal memory consumed by the
+different method. This is the maximum across all instances. It is obtained by ex-
+31
+ecuting a reference simulation for each instance applying a random walk method
+and subtracting the resulting memory consumption from the memory consumed
+by the respective method for the same instance. Note that the measurement of
+the memory underlies inaccuracy caused by technical influences like the garbage
+collection. However, overall we can see that the memory consumed only differs
+between the methods in reasonable absolute numbers. Especially when looking
+at the maximal memory consumption across all instances we can observe that
+memory is not the limiting factor for the proposed methods considering todays
+typical hardware.
+(a) CBS (b) WHCA∗v
+Figure 11: Heat map of the robot positions over time for a part of instance
+1-6-16-146-2726 (purple ≡ low, red ≡ high)
+The impact of path planning on the systems overall performance can also
+be seen in more detail when comparing the movement of the robots between
+WHCA∗v and CBS for a large instance by using the heatmaps shown in Fig.
+11. The heatmaps show the positions of all robots that are periodically polled
+throughput the simulation horizon. A logarithmic scale from purple as the
+coldest color to red as the hottest is used to render the values. Hence, warmer
+colors indicate areas where robots have been observed more frequently. In the
+case of CBS the highest conflicting area in terms of congestion are the exits
+of the stations (stations are positioned all around the inventory area for this
+instance). When applying WHCA∗v to the same instance robots are able to
+leave the stations quickly and spent more time within the inventory area storing
+and retrieving pods. This is specifically indicated by less “hot dots”, which can
+especially be observed at intersection waypoints. Overall the movement behavior
+of WHCA∗v is more ’fluent’ along the main axes from the inventory area towards
+the stations and back. We can observe similar effects for the other methods and
+instances. Thus, ensuring a fluent robot movement is an objective of efficient
+path planning.
+32
+6 Conclusion
+In this work we proposed a generalized problem definition of the MAPF problem
+that allows the application of methods for the field of Robotic Mobile Fulfill-
+ment Systems. Additionally, we have proven that A∗ is complete and admissible
+in the search space of our problem. Further on, we describe necessary modi-
+fications to the A∗-based algorithms previously applied to MAPF. Based on
+the computational results from our simulation framework, WHCA∗v performed
+the best according to the proposed metrics, but does not scale as well as the
+FAR methods in terms of wall-clock time. Similarly, the time consumption of
+CBS negatively impacted the performance for the large instances in our set. In
+contrast, FAR is applicable even for very large instances.
+In future we want to investigate the combination of the proposed methods
+with control mechanisms for the other decision components, such as task al-
+location. At this, we expect that methods have mutual dependencies. Hence,
+effective methods have to be evaluated that cooperate best to achieve a globally
+efficient system. Furthermore, we observe the impact of the layout characteris-
+tics and size on the performance, which suggests a more detailed investigation
+of the dependencies of these.
+Acknowledgements
+We would like to thank Tim Lamballais for providing us with the layout concept
+used for the instances of the experiments. Additionally, we thank the Paderborn
+Center for Parallel Computing (PC2) for the use of their HPC systems for con-
+ducting the experiments. Marius Merschformann is funded by the International
+Graduate School - Dynamic Intelligent Systems, Paderborn University.
+33
+References
+[1] Max Barer, Guni Sharon, Roni Stern, and Ariel Felner. Suboptimal vari-
+ants of the conflict-based search algorithm for the multi-agent pathfinding
+problem. In Seventh Annual Symposium on Combinatorial Search, 2014.
+[2] Liron Cohen, Tansel Uras, and Sven Koenig. Feasibility study: Using high-
+ways for bounded-suboptimal multi-agent path finding. In Eighth Annual
+Symposium on Combinatorial Search, 2015.
+[3] Thomas H Cormen and Karin Lippert. Algorithmen-Eine Einführung, vol-
+ume 2. Oldenbourg, 2010.
+[4] Boris de Wilde, Adriaan W ter Mors, and Cees Witteveen. Push and rotate:
+cooperative multi-agent path planning. In Proceedings of the 2013 inter-
+national conference on Autonomous agents and multi-agent systems, pages
+87–94. International Foundation for Autonomous Agents and Multiagent
+Systems, 2013.
+[5] John Enright and Peter R. Wurman. Optimization and coordinated au-
+tonomy in mobile fulfillment systems. In Sanem Sariel-Talay, Stephen F.
+Smith, and Nilufer Onder, editors, Automated Action Planning for Au-
+tonomous Mobile Robots, 2011.
+[6] Ariel Felner, Roni Stern, Asaph Ben-Yair, Sarit Kraus, and Nathan Ne-
+tanyahu. Pha*: finding the shortest path with a* in an unknown physical
+environment. Journal of Artificial Intelligence Research, 21:631–670, 2004.
+[7] Alborz Geramifard, Pirooz Chubak, and Vadim Bulitko. Biased cost
+pathfinding. In AIIDE, pages 112–114, 2006.
+[8] Anna Gorbenko and Vladimir Popov. Multi-agent path planning. Applied
+Mathematical Sciences, 6(135):6733–6737, 2012.
+[9] Jinxiang Gu, Marc Goetschalckx, and Leon F. McGinnis. Research on
+warehouse operation: A comprehensive review. European Journal of Oper-
+ational Research, 177(1):1–21, 2007.
+[10] Peter E Hart, Nils J Nilsson, and Bertram Raphael. A formal basis for
+the heuristic determination of minimum cost paths. IEEE transactions on
+Systems Science and Cybernetics, 4(2):100–107, 1968.
+[11] Christopher J. Hazard, Peter R. Wurman, and Raffaello D’Andrea. Al-
+phabet soup: A testbed for studying resource allocation in multi-vehicle
+systems. In Proceedings of AAAI Workshop on Auction Mechanisms for
+Robot Coordination, pages 23–30. Citeseer, 2006.
+[12] A. E. Hoffman, M. C. Mountz, M. T. Barbehenn, J. R. Allard, M. E. Kim-
+mel, F. Santini, M. H. Decker, R. D’Andrea, and P. R. Wurman. System
+and method for inventory management using mobile drive units, 2013.
+34
+[13] Mokhtar M Khorshid, Robert C Holte, and Nathan R Sturtevant. A
+polynomial-time algorithm for non-optimal multi-agent pathfinding. In
+Fourth Annual Symposium on Combinatorial Search, 2011.
+[14] Athanasios Krontiris, Ryan Luna, and Kostas E. Bekris. From feasibil-
+ity tests to path planners for multi-agent pathfinding. In Sixth Annual
+Symposium on Combinatorial Search, 2013.
+[15] T. Lamballais, D. Roy, and M. B. M. de Koster. Estimating performance
+in a robotic mobile fulfillment system. Forthcoming in European Journal
+of Operations Research (EJOR), 2016.
+[16] Ailsa H Land and Alison G Doig. An automatic method of solving dis-
+crete programming problems. Econometrica: Journal of the Econometric
+Society, pages 497–520, 1960.
+[17] Tuan Le-Anh and M.B.M. de Koster. A review of design and control of
+automated guided vehicle systems. European Journal of Operational Re-
+search, 171(1):1–23, 2006.
+[18] Ryan Luna and Kostas E. Bekris. Efficient and complete centralized multi-
+robot path planning. In 2011 IEEE/RSJ International Conference on In-
+telligent Robots and Systems (IROS 2011), pages 3268–3275, 2011.
+[19] Judea Pearl. Heuristics: intelligent search strategies for computer problem
+solving. Addison-Wesley Pub. Co., Inc., Reading, MA, 1984.
+[20] Hans Albert Richard and Manuela Sander. Technische Mechanik - Dy-
+namik: Grundlagen - effektiv und anwendungsnah. Viewegs Fachbücher
+der Technik. Vieweg, Wiesbaden, 1. aufl. edition, 2008.
+[21] Kees Jan Roodbergen and Iris F.A. Vis. A survey of literature on au-
+tomated storage and retrieval systems. European Journal of Operational
+Research, 194(2):343–362, 2009.
+[22] Guni Sharon, Roni Stern, Ariel Felner, and Nathan R. Sturtevant. Conflict-
+based search for optimal multi-agent pathfinding. Artificial Intelligence,
+219:40–66, 2015.
+[23] Guni Sharon, Roni Stern, Meir Goldenberg, and Ariel Felner. The in-
+creasing cost tree search for optimal multi-agent pathfinding. Artificial
+Intelligence, 195:470–495, 2013.
+[24] David Silver. Cooperative pathfinding. In AIIDE, pages 117–122, 2005.
+[25] Trevor Scott Standley. Finding optimal solutions to cooperative pathfinding
+problems. In AAAI, volume 1, pages 28–29, 2010.
+[26] James A. Tompkins. Facilities planning. John Wiley & Sons, Hoboken, NJ
+and Chichester, 4th ed. edition, 2010.
+35
+[27] M. Turpin, N. Michael, and V. Kumar. Capt: Concurrent assignment and
+planning of trajectories for multiple robots. The International Journal of
+Robotics Research, 33(1):98–112, 2014.
+[28] Ko-Hsin Cindy Wang and Adi Botea. Fast and memory-efficient multi-
+agent pathfinding. In ICAPS, pages 380–387, 2008.
+[29] Ko-Hsin Cindy Wang and Adi Botea. Mapp: a scalable multi-agent path
+planning algorithm with tractability and completeness guarantees. Journal
+of Artificial Intelligence Research, (42):55–90, 2011.
+[30] Peter R. Wurman, Raffaello D’Andrea, and Mick Mountz. Coordinating
+hundreds of cooperative, autonomous vehicles in warehouses. AI Magazine,
+29(1):9, 2008.
+[31] Jingjin Yu and Steven M LaValle. Time optimal multi-agent path planning
+on graphs. In The First AAAI Workshop on Multiagent Pathfinding, 2012.
+36
+A Theorem
+Theorem 1. Let c(n1, n2) be the cost of the arc (n1, n2) in search space S of
+MAPFWR. Then it holds a finite and positive lower bound δ, c(n1, n2) ≥ δ ≥ 0.
+Proof. Let r be argmaxr∈RV r, T
+R be
+maxi∈R∪Bmaxi′∈R∪B\{i} L
+R
+i + L
+R
+i′
+V r
+and
+δ be min(TW , TR). So δ > 0 since TW ∈ R+, ∀r ∈ R : LRr , V r ∈ R+ and
+∀b ∈ B : LRb ∈ R+. Now we look at the possible actions occurring on the arc
+(n1, n2).
+1. If there is a wait action then c(n1, n2) = T
+W ≥ δ > 0
+2. If there is a move action through the arc (w1, w2) and a rotation occurs
+on w1 with angle ϕ then
+c(n1, n2) = t
+R (r, ϕ,Ωr) + t
+D
+(
+r, dE (w1, w2) ,
+−→
+A r, V r,
+←−
+A r
+)
+≥ ϕ
+Ωr
++
+dE (w1, w2)
+V r
+≥ d
+E (w1, w2)
+V r
+≥ TR ≥ δ > 0
+3. If there is a move action through the arc (w1, w2) and no rotation occurs
+on w1, moreover, w0 is the last stopping node where a rotation occurs
+with angle ϕ then
+c(n1, n2) = t
+R (r, ϕ,Ωr) + t
+D
+(
+r, dE (w0, w2) ,
+−→
+A r, V r,
+←−
+A r
+)
+− tD
+(
+r, dE (w0, w1) ,
+−→
+A r, V r,
+←−
+A r
+)
+≥ ϕ
+Ωr
++
+dE (w1, w2)
+V r
+≥ d
+E (w1, w2)
+V r
+≥ TR ≥ δ > 0
+Thus, c(n1, n2) ≥ δ > 0.
+In the proof, δ is selected as the smallest cost of the changed state for
+each robot, which is either the waiting time TW or the time TR for the robot
+with highest speed to go through the shortest arc. According to Eq. (1),
+maxi∈R∪Bmaxi′∈R∪B\{i} L
+R
+i +L
+R
+i′ is the lower bound of the length of (w1, w2).
+In the first case, there is no action, which is shorter than δ, since δ ismin(TW , TR).
+In the second case, the time for going through an arc is longer than TR, and
+likewise for the third case. Note that in the third case, the time for the path
+from w1 to w2 is calculated through the path from w0 to w2 minus the time
+for the path from w0 to w1. Therefore, δ is the finite and positive lower bound
+for all actions in search space S.
+B Robot movement simulation
+The calculation of traveling times and distances is based on a uniformly ac-
+celerated and decelerated movement. At this, the velocity of a robot has to
+be considered to determine the arrival time of it at a destination node. The
+symbols used in the following description are defined in Tab. 7. The fundamen-
+37
+Table 7: Symbol definitions
+Symbol Description
+vt The speed at time t
+st The position at time t−→a Acceleration in ms2←−a Deceleration in ms2 (negative)
+v Top-speed in ms
+tal formulas for all remaining definitions are given by the speed (see Eq. 18),
+the difference in position while accelerating (see Eq. 19) and the difference in
+position during top-speed (see Eq. 20).
+vt =
+−→a t+ v0 (18)
+st =
+−→a
+2
+t2 + v0t+ s0 (19)
+st = vt+ s0 (20)
+The calculation of the required time for traveling to the next node is used for
+cost calculation by the search algorithms. In Eq. 11 the time for traveling
+from the start node up until the stop at the destination node was defined. For
+the implementation of the simulation framework it is required to also calculate
+distances and times based on an initial speed v0 > 0. For this the time (tv0→v)
+and distance
+(
+stv0→v
+)
+to reach the top-speed are needed (see Eq. 21 & 22). This
+can analogously be defined for full deceleration (see Eq. 23 & 24).
+v = −→a tv0→v + v0 ⇔ tv0→v =
+v − v0
+−→a
+(21)
+stv0→v =
+−→a
+2
+(tv0→v)
+2
++ v0tv0→v (22)
+0 =←−a tv0→0 + v0 ⇔ tv0→0 =
+0− v0
+←−a
+(23)
+stv0→0 =
+←−a
+2
+(tv0→0)
+2
++ v0tv0→0 (24)
+For the calculation of time for a given speed v0 and distance d four cases need
+to be considered. In the first case only the deceleration is possible. In the
+second case cruising at top-speed and deceleration are possible. In the third
+case acceleration until top-speed, cruising at top-speed and deceleration are
+possible. In the fourth case the distance is to short such that only an acceleration
+and deceleration phase are possible. The function defined in Alg. 6 calculates
+the remaining cruise time for all of the cases. Line 7 uses the time at which
+acceleration switches to deceleration. Let d′ be the distance from the start node
+38
+Algorithm 6: CruiseT ime(−→a ,←−a , v, v0, d)
+1 if d = stv0→0 then
+2 return tv0→0
+3 if v0 = v then
+4 return
+d−stv0→0
+v + tv0→0
+5 if stv0→0 + stv0→0 ≤ d then
+6 return tv0→v +
+d−stv0→v−stv0→0
+v + tv0→0
+7 return
+√√√√d+ −→a2 ( v0−→a )2
+−→a
+2 +
+−→a
+2←−a
++
+√√√√d+ −→a2 ( v0−→a )2
+←−a
+2 +
+←−a
+2−→a
+− v0−→a
+to the destination node, then the this time point is defined as given by Eq. 25.
+d′ =
+−→a
+2
+t21 +
+←−a
+2
+t22
+⇔ d′ =
+−→a
+2
+t21 +
+←−a
+2
+(−→a t1
+←−a
+)2
+⇔ d′ =
+−→a
+2
+t21 +
+←−a
+2
+(−→a t1)
+2
+2←−a
+⇔ t21 =
+d′
+−→a
+2 +
+−→a 2
+2←−a
+⇔ t1 =
+√
+d′
+−→a
+2 +
+−→a 2
+2←−a
+(25)
+For the calculation we assume that movement starts and the start node and
+ends at the destination node. If v0 > 0 and d
+′ > d, then d′ has to be calculated
+by using d (see 26).
+d′ = d+
+−→a
+2
+( v0
+−→a
+)2
+(26)
+Analogously to Eq. 25 it is also possible to solve for t2. The sum of t1 and t2 is
+the complete time for the cruise from start node to destination node. The time
+for accelerating to v0 is being subtracted, such that the remaining time can be
+expressed like in line 7.
+39
+

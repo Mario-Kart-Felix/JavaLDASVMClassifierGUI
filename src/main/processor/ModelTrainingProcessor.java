@@ -40,7 +40,7 @@ public class ModelTrainingProcessor implements Runnable {
 	private JTable extractedTopicTable;
 
 	// static
-	private static final int numberOfTopic = 1;
+	private static final int numberOfTopic = 10;
 	private static final DateFormat dateFormat = new SimpleDateFormat("yyyyMMddHHmmssSSS");
 	private static final String outputModelRootDirPath = System.getProperty("user.dir") + "/data/svm/model";
 
@@ -101,8 +101,10 @@ public class ModelTrainingProcessor implements Runnable {
 
 			Long startTime = new Date().getTime();
 
-			this.textFileAdapter.writeAppendToFile("**Step 1: Extracting keywords from each topic by LDA\n",
+			this.textFileAdapter.writeAppendToFile("**Step 1: Extracting keywords from each topic by LDA",
 					this.jobOverAllLogFilePath);
+			this.textFileAdapter.writeAppendToFile("--> Number of topic: [" + this.numberOfTopic
+					+ "], number of taken words: [" + this.numberOfTakenOutWord + "]\n", this.jobOverAllLogFilePath);
 
 			File[] topicFolders = new File(inputFolderPath).listFiles();
 
@@ -116,28 +118,32 @@ public class ModelTrainingProcessor implements Runnable {
 
 							String topicName = topicFolder.getName();
 
-							this.textFileAdapter.writeAppendToFile("Processing topic: -> [" + topicName + "]",
+							this.textFileAdapter.writeAppendToFile("Starting to process topic: -> [" + topicName + "]",
 									this.jobOverAllLogFilePath);
+
 							this.textFileAdapter.writeAppendToFile(topicName, topicListFilePath);
 
 							String outputKeywordForTopicFilePath = extractedTopicKeywordFolderPath + "/" + topicName
 									+ ".txt";
 
-							this.extractWordFromDocFolder(topicFolder.getAbsolutePath(), outputKeywordForTopicFilePath);
-							
+							this.extractWordFromDocFolderByLDA(topicFolder.getAbsolutePath(),
+									outputKeywordForTopicFilePath);
+
 							// tables
-							Object[] row = {topicName, topicFolder.getAbsolutePath() };
+							Object[] row = { topicName, topicFolder.getAbsolutePath() };
 							DefaultTableModel tableModel = (DefaultTableModel) this.extractedTopicTable.getModel();
 							tableModel.addRow(row);
-							
-							this.textFileAdapter.writeAppendToFile("-------------------------\n",
+
+							this.textFileAdapter.writeAppendToFile("\nEnding to process topic: -> [" + topicName + "]",
+									this.jobOverAllLogFilePath);
+							this.textFileAdapter.writeAppendToFile("*************************\n\n",
 									this.jobOverAllLogFilePath);
 
 						} catch (IOException e) {
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
-						
+
 					}
 				}
 
@@ -207,7 +213,7 @@ public class ModelTrainingProcessor implements Runnable {
 	}
 
 	// extractWordFromDocFolder
-	private void extractWordFromDocFolder(String corpusFolderPath, String outputFilePath) throws IOException {
+	private void extractWordFromDocFolderByLDA(String corpusFolderPath, String outputFilePath) throws IOException {
 
 		// 1. Load corpus from disk
 		Corpus corpus = Corpus.load(corpusFolderPath, this.wordTokenizer);
@@ -221,22 +227,58 @@ public class ModelTrainingProcessor implements Runnable {
 		// 4. The phi matrix is a LDA model, you can use LdaUtil to
 		// explain it.
 		double[][] phi = ldaGibbsSampler.getPhi();
-
 		Map<String, Double>[] topicMaps = LdaUtil.translate(phi, corpus.getVocabulary(), this.numberOfTakenOutWord);
+		LdaUtil.explainToLogFile(topicMaps, this.jobOverAllLogFilePath);
 
+		double[][] theta = ldaGibbsSampler.getTheta();
+		LdaUtil.dispThetaToLogFile(theta, this.jobOverAllLogFilePath);
+		LdaUtil.dispThetaInNumToLogFile(theta, this.jobOverAllLogFilePath);
+		LdaUtil.displayProbTopicToLogFile(theta, this.jobOverAllLogFilePath);
+
+		// get the keywords of topic which has maximum prob value
+		int maxProbDistributedTopicPos = this.getMaxProbDistributedTopicOverCorpus(theta);
 		List<String> entries = new ArrayList<>();
 
-		for (Map<String, Double> topicMap : topicMaps) {
-			// System.out.printf("topic %d :\n", i++);
-			for (Map.Entry<String, Double> entry : topicMap.entrySet()) {
-				entries.add(entry.toString());
-				this.textFileAdapter.writeAppendToFile(entry.toString(), this.jobOverAllLogFilePath);
+		System.out.println("Max distributed topic probability over corpus -> [" + maxProbDistributedTopicPos + "]");
+		this.textFileAdapter.writeAppendToFile(
+				"\nMax distributed topic probability over corpus -> [" + maxProbDistributedTopicPos + "]",
+				this.jobOverAllLogFilePath);
+
+		for (Map.Entry<String, Double> entry : topicMaps[maxProbDistributedTopicPos].entrySet()) {
+			entries.add(entry.toString());
+			this.textFileAdapter.writeAppendToFile(entry.toString(), this.jobOverAllLogFilePath);
+		}
+		//this.textFileAdapter.writeAppendToFile("\n", this.jobOverAllLogFilePath);
+
+		textFileAdapter.writeToDataFile(entries, outputFilePath);
+
+	}
+
+	// /getMaxProbDistributedTopicOverCorpus
+	public int getMaxProbDistributedTopicOverCorpus(double[][] theta) {
+
+		double[] totalProbistributedTopicMaps = new double[theta[0].length];
+		int maxProbDistributedTopicPos = 0;
+		for (int k = 0; k < theta[0].length; k++) {
+
+			double totalProb = 0;
+
+			// get total prob value
+			for (int m = 0; m < theta.length; m++) {
+				totalProb += theta[m][k];
+			}
+
+			// add to array
+			totalProbistributedTopicMaps[k] = totalProb;
+
+			// check & get the max prob value of topic at position in array
+			if (totalProb > totalProbistributedTopicMaps[maxProbDistributedTopicPos]) {
+				maxProbDistributedTopicPos = k;
 			}
 
 		}
 
-		textFileAdapter.writeToDataFile(entries, outputFilePath);
-		LdaUtil.explain(topicMaps);
+		return maxProbDistributedTopicPos;
 
 	}
 

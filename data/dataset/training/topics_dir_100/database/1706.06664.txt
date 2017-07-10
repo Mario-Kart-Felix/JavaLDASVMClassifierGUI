@@ -1,0 +1,1662 @@
+Arrays of (locality-sensitive) Count Estimators (ACE):
+High-Speed Anomaly Detection via Cache Lookups
+Chen Luo
+Department of Computer Science
+Rice University
+Houston, TX, USA
+cl67@rice.edu
+Anshumali Shrivastava
+Department of Computer Science
+Rice University
+Houston, TX, USA
+anshumali@rice.edu
+ABSTRACT
+Anomaly detection is one of the frequent and important sub-
+routines deployed in large-scale data processing systems.
+Even being a well-studied topic, existing techniques for
+unsupervised anomaly detection require storing significant
+amounts of data, which is prohibitive from memory and la-
+tency perspective. In the big-data world existing methods
+fail to address the new set of memory and latency constraints.
+In this paper, we propose ACE (Arrays of (locality-sensitive)
+Count Estimators) algorithm that can be 60x faster than
+the ELKI package [2], which has the fastest implementation
+of the unsupervised anomaly detection algorithms. ACE
+algorithm requires less than 4MB memory, to dynamically
+compress the full data information into a set of count arrays.
+These tiny 4MB arrays of counts are sufficient for unsuper-
+vised anomaly detection. At the core of the ACE algorithm,
+there is a novel statistical estimator which is derived from
+the sampling view of Locality Sensitive Hashing(LSH). This
+view is significantly different and efficient than the widely
+popular view of LSH for near-neighbor search. We show the
+superiority of ACE algorithm over 11 popular baselines on 3
+benchmark datasets, including the KDD-Cup99 data which
+is the largest available benchmark comprising of more than
+half a million entries with ground truth anomaly labels.
+1. INTRODUCTION
+The problem of Anomaly (or outlier) detections is the task
+of identifying instances (or patterns) in data that do not
+conform to the expected behavior [9]. These non-conforming
+examples are popularly referred to as anomalies, or outliers,
+sometimes interchangeably. Anomaly (or Outlier) detection
+algorithms are frequently required in large data processing
+applications. Anomaly detection is one of the very well
+studied topics due to a variety of domain applications which
+include fraud detection, unusual activity detection in video
+surveillance, intrusion detection in network traffic, etc.
+Anomaly detection can be either supervised [25] or unsu-
+pervised [17]. Supervised anomaly detection leverages ma-
+chine learning algorithms, such as classification, over datasets
+labeled as anomalous/non-anomalous. However, there are
+three major issues with supervised anomaly detection algo-
+rithms: 1) In most applications, label information about
+anomalies is not available, 2) Anomalies are rare, and hence
+there is a huge class imbalance, and 3) Supervised algorithms
+needs to be re-trained for drifting data distributions with
+new label information. Drifting data distribution is quite
+common in big-data systems, where supervised re-training
+is prohibitive. Therefore, we are interested in unsupervised
+anomaly detection which does not require any label infor-
+mation, and which can automatically deal with changes in
+data distributions over time. We briefly describe some of the
+modern challenges in unsupervised anomaly detection that
+we will address in this work.
+Challenge 1: High-Speed Drifting DataMany stream-
+ing applications demand fast-response and real-time inference
+from dynamic and drifting high volumes of sensor data over
+time. Most anomaly detection applications, for example
+over the web-network servers, requires dealing with unprece-
+dented amounts of data in a fraction of seconds. The data
+distribution is constantly changing, and it is often bursty [22].
+Detecting anomaly events in real-time, such as DDoS (Dis-
+tributed Denial of Service) attacks, network failures, etc., is
+highly beneficial in monitoring network performance degra-
+dation and service disruptions. Network attacks can be
+very costly to recover and may require a complete restart
+of the service. Detecting anomalies over video streams from
+surveillance cameras is critical for identifying suspicious and
+terrorist activities before they happen. With the increase in
+sensor resolutions, the data generated is ultra-high dimen-
+sional adding to the difficulty.
+Challenge 2: Ultra-LowMemory Budget for Cache
+Utilization In many high-speed streaming applications,
+such as High Energy Physics (HEP) and network servers,
+algorithms communicating with DRAM (main memory) is
+just too slow for the rate at which the data is generated. Ide-
+ally, we need ultra-low memory anomaly detection algorithm
+that can entirely sit in the cache which can be around 2-10
+times faster than accessing main memory [11]. However, the
+cache memory is limited to few Megabytes. Another critical
+pushing need for ultra-low memory algorithm is anomaly de-
+tection on mobile phones or smart sensors. Algorithms which
+requires significant computation and memory is prohibitive
+for these low-memory low-power platforms.
+Owing to the significance of the above two challenges and
+1
+ar
+X
+iv
+:1
+70
+6.
+06
+66
+4v
+1 
+ [
+cs
+.D
+B
+] 
+ 2
+0 
+Ju
+n 
+20
+17
+the impact of solving them, mining high-speed streaming
+data is among the top-10 big-data challenges.
+Focus: The focus of this paper is on designing a novel
+anomaly detection algorithm that can deal with the above
+two challenges.
+Popular approaches for Unsupervised Anomaly De-
+tection: Existing methods for unsupervised anomaly detec-
+tion usually calculate some statistics (or score) between the
+data D and the given point of interest x, given by S(x,D).
+The expected value of this statistics for non-outlier points is
+different from that of the outlier point. The deviation of this
+statistics, for a given query point of interest q, is a measure
+of the anomalous behavior of q. If the deviation is found
+to be significant, the point q is reported as an anomaly or
+outlier.
+There are numerous approaches for unsupervised anomaly
+detection in literature. We review and compare with 11 of
+these popular methods in our experiments. See section 5.2
+for brief descriptions of several popular algorithms. Unsuper-
+vised anomaly detection can be broadly categorized into two
+categories: 1) Near-Neighbor (NN) Based and 2) Aggregate
+Statistics Based. NN based approaches typically define the
+outlier score of a point q based on the difference between q’s
+own behavior compared to the behavior of q’s near-neighbors.
+The first category is the most common category. There are
+several implementations available. A notable among them
+is the ELKI package [2] which is currently one of the most
+popular packages for outlier detection because of highly op-
+timized implementations and usage of smart near-neighbor
+search algorithms.
+Aggregate statistics based methods, on the other hand,
+define the outlier score of a point q based on the expected
+behavior of a global function S(q,D) of the data D, relative
+to q. A notable method among them is ABOD(Angle-based
+outlier detection) [27]. ABOD computes the variance of the
+angle formed by different pairs of points, in the dataset,
+incident on the point of interest q. It is expected that the
+outlier will have a negligible variance. See [27] for details.
+Both the categories of anomaly detection algorithms re-
+quire storing the complete dataset to either compute near-
+neighbor or the desired statistics from the dataset. The
+bottleneck computational cost is at least one pass over the
+data to either calculate the near-neighbor or the statistics.
+Thus, these methods have poor computational and memory
+requirements. Furthermore, change in the distribution of
+data requires storing and processing larger set of observa-
+tions. Therefore, the performance of standard algorithms
+gets worse with increasing data.
+Sampling and Fast Near-Neighbors: To work around
+the computational requirements it is natural to resort to
+fast alternatives [8]. There are plenty of techniques which
+exploits efficient near-neighbor capabilities to speed up NN.
+However, they still require storing the data in the memory.
+Even with the computational speedups, the methodologies
+are still slow for ultra-high speed data mining, as an accurate
+near-neighbor search over large data is still a costly operation.
+Relying on random sampling and projections of the data
+to estimate the aggregate statistics efficiently is not new [9].
+For example, recently, [27] showed that using smart ran-
+dom sampling and hashing algorithms, we can speed up the
+anomaly detection and also reduce the memory requirement.
+Instead of storing all the data points, we only need few ran-
+dom samples and their quantized projections. They proposed
+FastVOA which uses a modified ABOD statistics that can
+be estimated in near-constat time and is as good as ABOD
+for anomaly detection.
+However, these approximate methods still require stor-
+ing a significant number of data samples, which makes the
+algorithm slow. FastVOA involves various computation of
+medians and other costly statistics. Our experiments show
+that the sampling based FastVOA approach is significantly
+slower than fast NN based alternatives.
+Our Contributions: We propose a family of statistics
+which provides a “sweet" spot between the discriminative
+power of the statistics and the resource efficiency for anomaly
+detection. These special statistics, due to their form, can
+be efficiently computed in ultra-low memory and does not
+require storing even a single data sample. Furthermore, any
+updates to the data can be incorporated on the fly making
+our proposal ideal for high-speed data applications.
+Our proposed family of statistics are derived from the colli-
+sion probability of locality sensitive hashing (LSH) functions.
+We show that these classes of statistics have strong discrimi-
+native property for identifying outliers and most importantly,
+it can be accuracy estimated using Arrays of Count Esti-
+mators (ACE), a novel and tiny LSH based data strucutre.
+Designing these estimators requires taking the sampling view
+of LSH rather than the widely popular near-neighbor search
+view. To the best of our knowledge, this is the first work
+which uses LSH counts as unbiased estimators of statistics.
+We demonstrate, empirically and theoretically, that the
+proposed LSH based count estimators are significantly more
+accurate than random sampling approaches. Our ACE algo-
+rithm only requires computing few Locality Sensitive Hashes
+of the data and a small set of count array lookups to esti-
+mate the proposed statistics sharply. Our approach does
+not require even a single distance computation. The theory
+and the class of estimators presented in the paper, could of
+independent interest in itself.
+We demonstrate rigorous experimental evidence on three
+public outlier detection benchmarks including the largest
+publicly available benchmark dataset KDD-cup99 HTTP
+dataset having more than half a million labeled instances.
+Empirically, our algorithm only requires around 4MB of
+memory and near-constant amount of computations, irre-
+spective of the size of the datasets. Thus, our algorithm
+can exploit fast L3 caches (Level 3 caches), which can be
+significantly faster than dealing with main memory.
+We provide a comparison of our algorithm with 11 differ-
+ent methodologies, which include some of the fastest and
+most popular anomaly detection algorithms. Our experiment
+shows that we are around at least 60x faster than of the best
+performing competitor on the largest benchmark KDD-cup99
+HTTP dataset. This disruptive speedup is not surprising
+given the computational simplicity of our algorithm and
+ultra-low memory print than can leverage Level 3 cache.
+Organization: We cover some basics of locality sensitive
+hashing (LSH) and signed random projections (SRP) in
+Section 2. We introduce our “sweet" measure for anomaly
+detection in Section 3. We then show why it is a good notion
+of outlierness in Section 3.1. We then propose our ACE
+2
+algorithm in Section 3.2. We later argue how the simple
+ACE algorithm and the proposed measure are connected. We
+show analysis of the ACE estimators and its properties, along
+with its superiority over random sampling, in Section 3.3.
+Experimental comparisons and evaluations are provided in
+Section 5. We have deferred the proofs of theorems to the
+appendix, in the end, for better readability.
+2. BACKGROUND: LOCALITY SENSITIVE
+HASHING
+Locality-Sensitive Hashing (LSH) [19] is a popular tech-
+nique for efficient approximate nearest-neighbor search. LSH
+is a family of functions, such that a function uniformly sam-
+pled from this hash family has the property that, under the
+hash mapping, similar points have a high probability of hav-
+ing the same hash value. More precisely, Consider H a family
+of hash functions mapping RD to a discrete set [0, R− 1].
+Definition 1. Locality Sensitive Hashing (LSH) Fam-
+ily A family H is called (S0, cS0, u1, u2)-sensitive if for any
+two point x, y ∈ Rd and h chosen uniformly from H satisfies
+the following:
+• if Sim(x, y) ≥ S0 then PrH(h(x) = h(y)) ≥ u1
+• if Sim(x, y) ≤ cS0 then PrH(h(x) = h(y)) ≤ u2
+A collision occurs when the hash values for two data vectors
+are equal, meaning that h(x) = h(y). The probability of a
+collision for a LSH hash function is generally proportional
+to some monotonic function of similarity between the two
+data vectors, i.e., Pr[h(x) = h(y)] ∝ f(sim(x, y)), where
+sim(x, y) is the similarity under consideration and f is some
+monotonically increasing function. Essentially, similar items
+are more likely to collide with each other under LSH mapping.
+LSH is a very well studied topic in computer science theory
+and database literature. There are a number of well know
+LSH families in the literature. Please refer [14] for details.
+The most popular one is Signed Random Projections [10].
+2.1 Signed Random Projections(SRP)
+Signed Random Projections(SRP) is an LSH for the cosine
+similarity measure, which originates from the concept of
+randomized rounding(SRP) [15, 10]. Given a vector
+x, SRP utilizes a random w vector with each component
+generated from i.i.d. normal, i.e., wi ∼ N(0, 1), and only
+stores the sign of the projection. Formally SRP family is
+given by
+hw(x) = sign(wTx).
+It was shown in the seminal work [15] that collision under
+SRP satisfies the following equation:
+Prw(hw(x) = hw(y)) = 1−
+θ
+π
+, (1)
+where θ = cos−1
+(
+xT y
+||x||2||y||2
+)
+. The term x
+T y
+||x||2||y||2
+, is the
+cosine similarity.
+If we generate K independent SRP bits, by sampling w
+independently k times, and use the generated K-bit number
+as the hash value, then the collision probability with the new
+hash function H becomes
+Pr(H(x) = H(y)) = (1− θ
+π
+)K (2)
+by the simple multiplicative law of probability. We will be
+using this observation heavily in our work.
+2.2 Progress in making Locality Sensitive Com-
+putations Faster
+Over the last decade, there has been a significant ad-
+vancement in reducing the amortized computational and
+memory requirements for computing several LSH signatures
+of the data vector. For random projections based LSH, of
+which signed random projection is a special case, we can
+calculate m LSH hashes of the data vector, with dimen-
+sions d, in time O(d log d + m), a significant improvement
+over dm. This speedup is possible due to the theory of
+Fast-Johnson–Lindenstrauss transformation [3, 12] . On the
+orthogonal side, even better speedup of O(d+m) has been
+obtained with permutation-based LSH, such as minwise hash-
+ing, using ideas of densification [34, 35, 32, 33]. These drastic
+reductions in hashing time have been instrumental in making
+LSH based algorithms more appealing and practical.
+3. OUR PROPOSAL
+Denote the dataset with D = {x(i)|i ∈ [1, n]}, where n
+is the number of data points in D. Unsupervised anomaly
+detection relies on some scoring mechanism, denote it by
+S : Rd × D 7→ R, for every xi ∈ D, such that the value of
+S(xi,D) for xi ∈ D is significantly different compared with
+xi ∈ O. Here O is the outlier set.
+By definition, outliers are significantly separated from an
+average data point. Therefore, any reasonable statistics
+of xi with respect to all other xj ∈ D will be different
+for outliers compared to a normal data point. Even an
+average distance of xi with all other elements of D is a
+reasonably good statistics [28]. However, as noted before,
+computing these statistics requires storing the complete data
+D. Note, that in general calculating every single S(xi,D)
+requires one complete pass over the dataset D. In addition,
+our experiments show that alternative estimations based
+on random sampling and random projections still lead to
+significant computational overheads.
+We instead focus on classes of scoring functions S(., .)
+over the dataset that can be estimated efficiently using a
+tiny memory efficient data structure that can easily fit fast
+processor cache. Furthermore, we also want to update the
+data structure on the fly. In particular, any change in data
+from D to D′ requires no change, and the estimates get
+dynamically adjusted.
+We show that a class of scoring function of the following
+form has the required property:
+S(q,D) =
+∑
+xi∈D
+p(q, xi)K , (3)
+where p is the collision probability of any LSH family and
+K ≥ 1 is an integer.
+The analysis of this paper extends naturally to any LSH
+scheme. For this work, we will focus on the popular signed
+random projections (SRP) as the LSH because of its sim-
+plicity. Furthermore, advances in fast SRP has lead to some
+3
+very lightweight hashing variants. With SRP, the collision
+probability p(q, xi) is given by the formula:
+p(q, xi) = 1−
+1
+π
+cos−1( q
+Txi
+‖q‖ ‖xi‖
+)
+which will also be the value of p(q, xi) for the rest of the
+paper.
+3.1 Can it discriminate Outliers?
+To demonstrate the discriminative power of the scoring
+function in Equation 3, we do a simulation experiment similar
+to the one performed in [27].
+We first generate a simple dataset with an outlier point.
+Figure 1a shows the snapshot of the data. There are two sets
+of data points. The outlier and the general data points. For
+the general data points, in addition, we make a distinction
+between the border points and inner points as illustrated in
+the figure.
+In Figure 1b., we plot the of the value of 1
+n
+S(q,D), given
+by Equation 3, for different sets of data points as a function
+of K.
+We can see from the figure the value of our statistics
+1
+n
+S(q,D) for an outlier point is near zero. In particular, it is
+significantly lower compared to the values of the same statis-
+tics for inner points and even border points. This behavior
+is expected. Note, that our statistics is a sum of collision
+probabilities of the LSH mapping over all the data points
+xi ∈ D. From the theory of LSH, the collision probability
+p(q, xi) indicates the level of similarity between q and xi. If
+q is an outlier, p(q, xi) is expected to be significantly low.
+We will further demonstrate the usefulness of this statistics
+in the experiments section.
+3.2 ACE (Arrays of (locality-sensitive) Counts
+Estimator) Algorithm
+For the ease of explanation, we first describe the procedure
+of our proposed ACE algorithm. We later show that this
+procedure is an efficient statistical estimator of our proposed
+outlier score S(q,D) defined by Equation 3.
+The overall process of ACE is summarized in Algorithm 1.
+Our ACE algorithm, uses K × L independent SRP hash
+functions hi, each given by Equation 1. K and L are hyper-
+parameters that are pre-specified. Note, this is analogous to
+the traditional (K,L) parameterized LSH algorithm for near-
+neighbor search. However, we do not perform any retrieval
+which requires heavy hash tables with buckets of candidates
+for each hash index. For near-neighbor, we further need to
+compute the distances of these candidates to identify the
+best.
+Instead, our method only needs a check the value of a
+simple counter at each index. We only need arrays of counters.
+The process is significantly efficient, both in memory and
+speed, compared to a single LSH near-neighbor query.
+We use Signed Random Projections(SRP) hsim (Equa-
+tions 1) which gives one-bit output. Using these 1-bit out-
+puts, we then generate L different meta-hash functions given
+by Hj(x) = [hj1(x);hj2(x); ...;hjK(x)] of K bits each. The
+K bits are generated by concatenating the individual bits.
+Here hij , i ∈ {1, 2, ...,K} and j ∈ {1, 2, ...,K}, are K × L
+independent evaluations of the SRP.
+The overall algorithm works in the following two phases:
+1) Counting Phase: We construct L short arrays, Aj ,
+j = {1, 2, .., L}, of size 2K each initialized with zeros.
+Algorithm 1 Arrays of (locality-sensitive) Count Es-
+timator(ACE) Algorithm
+1: Input: Dataset D, Number of Hashes K, Number of
+Hash tables L, α
+2: Hash Initialize: Generate LHj(.) usingK independent
+SRPs each.
+3: for i = 1 to L do
+4: Aj = new short[2K ](0) (Short Arrays)
+5: µ = 0, n = 0
+6: end for
+7: Pre-Processing Phase
+8: for xi ∈ D do
+9: µincre = 0
+10: for j = 1 to L do
+11: Aj [Hj(xi)] + +
+12: µincre = µincre + 2Aj [Hj (x)]+1L
+13: end for
+14: µ = 1
+n+1
+(
+nµ+ µincre
+)
+15: n++;
+16: end for
+17: Query Phase: Given query q
+18: Ŝ(q,D) = 0
+19: for j = 1 to L do
+20: Ŝ(q,D) = Ŝ(q,D) + 1
+L
+Aj [Hj(xi)]
+21: end for
+22: if Ŝ(q,D) ≤ µ− α then
+23: report q
+24: end if
+Given any observed element x ∈ D, we increment the count
+of the corresponding counter Hj(x) in array Aj , for all js.
+Thus, every counter keeps the total count of the number of
+hits to that particular index. The total cost of updating
+the data structure for any given x is KL SRP computations
+followed by L increments.
+Mean Update on Fly: For each xi ∈ D our estimated
+score is
+̂S(xi,D) =
+1
+L
+L∑
+j=1
+Aj [Hj(xi)].
+We compute the mean behavior µ of the scores over all the
+element in dataset x ∈ D.
+µ = 1
+n
+n∑
+i=1
+̂S(xi,D).
+Deviation from this mean will indicate outlierness. It turns
+out that we can dynamically update the mean µ on fly, as we
+read (or observe) the new data as shown in the Algorithm.
+See Section 3.4.1 for details.
+2) Real-time (query) Phase: Given a query q, for which
+we want to compute the score, we report the average of
+all the counters Aj [Hj(q)] ∀j ∈ {1, 2, ..., L}, i.e., Ŝ(q,D) =
+1
+L
+∑L
+j=1 Aj [Hj(q)]. We report q as anomaly if the estimated
+score Ŝ(q,D) is less than µ− α, where α is some preselected
+4
+Outlier
+Border Point
+Inner Point
+(a) Illustration of simulated data with Inner Points,
+Border Points and Outliers.
+0 2 4 6 8 10
+Number of Projections K
+Inner Point
+Outlier
+Border Point
+Border
+Inner
+Outlier
+(b) Normalized S(q, D) with respect to K for Inner Points, Border
+Points and Outliers.
+Figure 1: Discriminative power of S(q,D): We can see from the figure that the value of S(q,D) for an Outlier is significantly
+lower (different) compared to that of non-outliers.
+hyperparameter. The overall cost for querying is KL SRP
+computations and L lookups followed by a simple average
+calculation.
+3.3 Theory: Analysis and Superiority over
+Random Sampling
+We first define few notations needed for analysis. Given a
+query point q. For convenience, we will denote p(q, xi), the
+collision probability of the SRP of q with that of xi ∈ D, by
+pi.
+Intuition: LSH as Samplers LSH is widely accepted as
+a black box algorithm for near neighbor search. We take an
+alternative adaptive sampling view of LSH which has emerged
+very recently [37, 36]. As argued in Section 2.1, for a given
+query q andK-bit SRP hash functionHj , the probability that
+any element xi increments the count of location Hj(q) (the
+location of query) in array Aj is precisely p(q, xi)K . Using
+this observation, we will show that the count of the number
+of elements, from D, hitting the bucket of query Hj(q) is
+an unbiased estimator of the S(q, C) =
+∑n
+i=1 p(q, xi)
+K . This
+novel use of LSH as efficient data structure for statistical
+estimation could be of independent interest in itself.
+We define indicator variable Ixi∈Bq as
+Ixi∈Bq =
+{
+1, if xi is in the bucket of q
+0, otherwise.
+(4)
+That is Ixi∈Bq is an indicator for the event that data element
+xi and the query q are in the same bucket. It should be
+noted that
+Pr(Ixi∈Bq = 1) = p(q, xi)
+K = pKi (5)
+Note that, Ixi∈Bq and Ixj∈Bq are correlated. If xi and xj
+are “similar" then Ixi∈Bq = 1 is likely to imply Ixj∈Bq = 1.
+In other words, high similarity indicates positive correlation.
+Due to correlations, we may have both the cases:
+E[Ixi∈Bq Ixj∈Bq ]
+{
+≥ pKi pKj , (positive correlations)
+≤ pKi pKj , (negative correlation).
+(6)
+Here, E is the expectation.
+Using the above notations we can show that, for a given
+query q, Ŝ(q,D), computed in Algorithm 1, is an unbiased
+estimator of S(q,D) with variance given by:
+Theorem 1.
+E[Ŝ(q,D] =
+∑
+xi∈D
+pKi = S(q,D)
+V ar(Ŝ(q,D)) = 1
+L
+( n∑
+i=1
+pKi (1− pKi )
++
+∑
+i 6=j
+[
+E[Ixi∈Bq Ixj∈Bq ]− p
+K
+i p
+K
+j
+])
+The variance of Ŝ(q,D) is dependent on the data distribution.
+There are two terms in the variance 1
+L
+(∑n
+i=1 p
+K
+i (1− pKi )
+)
+and 1
+L
+∑
+i 6=j
+[
+E[Ixi∈Bq Ixj∈Bq ] − pKi pKj
+]
+. The terms inside
+summation is precisely the covariance between Ixi∈Bq and
+Ixj∈Bq
+E[Ixi∈Bq Ixj∈Bq ]− p
+K
+i p
+K
+j = E[Ixi∈Bq Ixj∈Bq ] (7)
+− E[Ixi∈Bq ]E[Ixj∈Bq ] (8)
+= Cov(Ixi∈Bq , Ixj∈Bq ) (9)
+There are n(n− 1) covariance terms in the second terms
+of variance, 1
+L
+∑
+i6=j
+[
+E[Ixi∈Bq Ixj∈Bq ]− pKi pKj
+]
+. To see why
+almost all of them will be negative, let m be the number of
+elements in the buckets of the query. So only pairs xi and xj
+in the bucket (O(m2) pairs) of query Hj(q) will contribute
+1 − pKi pKj ≥ 0 to the summation (product of indicators is
+1 ⇐⇒ both are 1). Rest all pairs (O((n−m)2)) will con-
+tribute negative terms −pKi pKj . Thus, if we choose K large
+enough then the expected number of elements in the bucket
+m is quite small. Hence, we can expect the variance to be
+significantly smaller than
+(∑n
+i=1 p
+K
+i
+(1−pKi )
+L
+)
+. We observe
+5
+…
+…
+…
+1
+4
+5
+1
+3
+6
++1
++1
++1
++1
++1
++1
+Arrays of CountsData Points
+Figure 2: We use the LSH hash of the data points to in-
+crement corresponding counters into different (independent)
+hash arrays. We do not save anything, we only increase the
+value by 1 for each bucket and then forget the data.
+in our experiments that K = 15 is a good recommended
+constant value.
+As noted the variance is dependent on the data distribution.
+If we have all exact duplicates, then all the covariances are
+positive. However, for real datasets, for any randomly chosen
+pair xi, xj , the covariance Cov(Ixi∈Bq , Ixj∈Bq ) will be almost
+always be negative.
+An alternative way of estimating S(q,D) is to use the
+random sampling. The idea is to uniformly sample a subset
+S ⊆ D of size L and report the random sampling estimator
+RSE(q,D)
+RSE(q,D) = n
+L
+[
+∑
+xi∈S
+pKi ] (10)
+From the theory of random sampling this estimator is also
+unbiased and has the following variance:
+Theorem 2.
+E[RSE(q,D)] =
+∑
+xi∈D
+pKi = S(q,D)
+V ar(RSE(q,D)) =
+(
+n
+L
+− 1
+)( n∑
+i=1
+p2Ki
+)
+=
+n∑
+i=1
+pKi
+([
+n
+L
+− 1
+]
+pKi
+)
+Both RSE(q,D) and Ŝ(q,D) are unbiased. For the same
+number of samples, the estimator with smaller variance is
+superior.
+We can get some insights from the leading terms
+∑n
+i=1 p
+K
+i
+([
+n
+L
+−
+1
+]
+pKi
+)
+and 1
+L
+(∑n
+i=1 p
+K
+i (1−pKi )
+)
+. Generally, for any i and
+large enough n, we always have
+[
+n
+L
+− 1
+]
+≥ 1
+L
+( 1−p
+K
+i
+pK
+i
+). Thus,
+for large enough n,
+V ar(RSE(q,D)) > 1
+L
+( n∑
+i=1
+pKi (1− pKi )
+)
+As argued before for real data we can expect 1
+L
+(∑n
+i=1 p
+K
+i (1−
+pKi )
+)
+> V ar(Ŝ(q,D)). Precise mathematical comparison
+between the variances of these two estimators is fairly chal-
+lenging due to data-dependent correlation.
+0 5 10 15
+Number of Lookup Tables (L) for ACE
+0.5
+1
+1.5
+2
+2.5
+M
+ea
+n 
+S
+qu
+ar
+ed
+ E
+rr
+or
+# Size of Sampling Set for Random Sampling
+ACE
+Random Sampling
+Figure 3: Comparison of ACE estimator with random sam-
+pling estimator on Image Object dataset, with varying L.
+ACE Estimator is consistently superior.
+Empirical Comparison: As argued, we expect that for
+real datasets the ACE estimator to be more accurate (less
+variance) compared to the random sampling estimator. To
+validate our arguments empirically, we compare these esti-
+mators on the three benchmark anomaly detection datasets.
+These are the same datasets used in the experiments sections.
+See section 5.1 for details. For all the three datasets, we
+randomly chose 50 queries and estimate their S(q,D) using
+the two competing estimators. We use K = 15 which is the
+fixed value used in all our experiments.
+We plot the mean square error of the estimates, computed
+using the actual and the estimated values, in Figures 3, 4, 5.
+Different figures are for different datasets. We vary the
+number of samples for random sampling estimator RSE(q,D)
+and the number of arrays for Ŝ(q,D). From the plots, it is
+clear that on all the three real datasets, as expected from our
+analysis, our ACE estimator Ŝ(q,D) consistently outperforms
+the random sampling estimator RSE(q,D) at the same level
+of L. Note, these estimators are unbiased and hence mean
+square error value is also the theoretical variance. These
+6
+0 5 10 15
+Number of Lookup Arrays (L) for ACE
+0
+0.5
+1
+1.5
+2
+M
+ea
+n 
+S
+qu
+ar
+ed
+ E
+rr
+or
+# Size of Sampling Set for Random Sampling
+ACE
+Random Sampling
+Figure 4: Comparison of ACE estimator with random sam-
+pling estimator on KDDCUP-99 HTTP dataset, with varying
+L. ACE Estimator is consistently superior.
+0 5 10 15
+Number of Lookup Arrays (L) for ACE
+0
+0.5
+1
+1.5
+2
+M
+ea
+n 
+S
+qu
+ar
+ed
+ E
+rr
+or
+# Size of Sampling Set for Random Sampling
+ACE
+Random Sampling
+Figure 5: Comparison of ACE estimator with random sam-
+pling estimator on Statlog Shuttle dataset, with varying L.
+ACE Estimator is consistently superior.
+experiments indicate that the variance of our ACE estimator
+is superior for estimating S(q,D) over random sampling.
+In addition to providing sharper estimates, in the next sec-
+tion, we show that our ACE algorithm only needs O(d log d+
+KL) computations to calculate the score. Here d is the di-
+mensions of the dataset. For the same number of samples
+L, random sampling estimator requires O(Ld) computations.
+Given that K = 15 is a fixed constant. For high dimensional
+datasets, we will have d > K. Thus, our estimator is not
+only more accurate but also cheaper compared to random
+sampling estimators from the computational perspective.
+3.4 Implementation Details, Running Time,
+Cache Utilization and Memory
+Computing the original score S(q,D) requires O(nd) com-
+putations and space, which for large and high dimensional
+datasets can be prohibitive.
+Running Time: From Algorithm 1, it is not difficult
+to see that for a query q, we need to compute KL hashes
+of the data followed by a simple addition of size L. The
+costliest step is the computations of KL hashes, which for
+d dimensional data can be accomplished in O(d log d+KL)
+computations using advances in fast random projections
+(Section 2.2). If instead, we are using minwise hashing as
+the LSH then it can be done in mere O(d+KL) using fast
+minwise hashes. However, minwise hashing is limited to
+binary datasets only.
+In all our experiments, we use K = 15 and L = 50 for all
+the three datasets irrespective of its size. Thus, with these
+small constant values, our scoring time negligible compared
+to the other algorithms which requires one pass over the full
+dataset D. In the experiments, we see that even with such
+minuscule computation, our method provides competitive
+accuracy while being orders of magnitude faster than 11
+state-of-the-art methods.
+Memory: Since we have 2K counters, it is unlikely that
+the counters will get too many hits. To save memory by a
+factor of two, we can use short integers (16 bits) instead of
+integer counters. The total amount of memory required by
+L counter arrays is 2K bytes each if we use short counters.
+The total space needed for the arrays is L × 2K × 2 bytes.
+For K = 15 and L = 50, the total space required by the
+ACE algorithm is around 3.2MB. In addition, we need
+to compute KL = 750 hashes, which requires storing 750
+random seeds (integers) from which we can generate hashes
+on the fly. 750 integers require negligible space compared to
+3.2MB. In the worst case, even if we decide to store the full
+random projections, we only need 750× d× 8 bytes (approx
+6d kilobytes).
+L3 Cache Utilizations: For all of our experiments, the
+total memory requirement of the ACE algorithm is ≤ 4MB,
+irrespective of the size of the datasets. Our query data struc-
+ture, the arrays, can easily fit into L3 cache of any modern
+processor, where the memory access can be anywhere from
+2-10x faster than the main memory (DRAM) access. Detect-
+ing anomaly requires scoring which only needs reading count
+from the arrays. Due to all these unique favorable properties,
+our algorithm is orders of magnitude faster than the fastest
+available packages for unsupervised anomaly detection.
+3.4.1 Dynamic Updates
+One of the appealing features of the ACE algorithm is
+that data can be dynamically updated and deleted. It is
+straightforward to increment (or decrement) the counters
+if we decide to add (or remove) any data x. However, we
+lose all the data information. We only store a set of count
+arrays, so it is not clear how we update the global mean µ
+of counts. Updating µ is an important part of Algorithm 1.
+Note, that the updated mean, µ′, should be the average of
+all the estimated score of all the data in D′ = D + x.
+It turns out that we can exactly compute the new value of
+µ′ from the existing count arrays. To simplify, let us convert
+old mean µ to sum by multiplying it by the size of dataset
+n = |D|. It is easy to keep track of the sum
+nµ =
+∑
+xi∈D
+1
+L
+L∑
+j=1
+Aj [Hj(xi)].
+Observe that, if the new x goes to location Hj(x) in array
+7
+Aj for any j. The count of location Hj will be increment
+by 1. This will also lead to an increment in the scores of all
+the elements which maps to Hj(x) in jth array by exactly
+1
+L
+. Since we already know the count value of Aj [Hj(xi)], the
+total increment to the sum would be Aj [Hj (xi)]
+L
+. In addition,
+the new data x will add an extra Aj [Hj (xi)]+1
+L
+for its own
+count. Thus, we can precisely compute the increment in the
+sum. The new mean µ′, for an addition of data x, can be
+computed as
+µ′ = 1
+n+ 1
+(
+nµ+
+L∑
+j=1
+2Aj [Hj(x)] + 1
+L
+)
+(11)
+Similar arguments can be made for deletion of x, with dele-
+tion, the new mean is given by
+µ′ = 1
+n− 1
+(
+nµ−
+L∑
+j=1
+2Aj [Hj(x)]− 1
+L
+)
+(12)
+4. DISCUSSIONS: PRIVACY PRESERVING
+ANOMALY DETECTION
+Privacy is becoming one of the sought after directions
+in data mining and machine learning. Privacy preserving
+anomaly detection is of broad interest in the big-data and
+IoT (Internet of Things) community [39]. In many setting,
+we do want to detect anomalies in the data. However, it also
+desirable that the attribute information remains private and
+secure. It turns out that our proposed ACE algorithm has
+ideal properties for privacy preserving anomaly detection.
+ACE does not require storing any data attributes, and
+the complete algorithm works only over aggregated counts
+generated from hashed data. If the hashes are not invertible,
+then the algorithm is safe. We can exploit advances in
+the secure computation to design protocols which hide the
+hashing mechanism [16].
+Obtaining differential privacy [5, 26] with ACE is quite
+appealing and neat. Since ACE algorithm relies on random
+projections to compute hashes, instead of original data, we
+can make ACE algorithm differentially private by adding
+only Gaussian noise instead of heavy-tailed Laplacian noise.
+[21] shows a way to release user information in a privacy-
+preserving way for near-neighbor search. The paper showed
+that adding Gaussian noise N(0, σ2) after the random pro-
+jection preserves differential privacy. Any function of differ-
+entially private object it also differentially private. Thus, to
+compute a private variant of SRP (Signed random projec-
+tion), we used the sign of the differentially private random
+projections (generated by adding Gaussian noise to usual
+projection) as suggested in [21].
+The final algorithm is very simple. The data is never
+revealed to anyone. At the source itself, the sign of differen-
+tially private random projections of data is used instead of
+usual SRP. All other process remains the same. Now since,
+we are only perturbing our algorithm with Gaussian noise,
+instead of Laplacian, we can expect a minimal loss in utility.
+Note, that privacy is significantly harder with other state-
+of-the-art anomaly detection algorithms that store the actual
+data or even samples. Making such algorithms private re-
+quires perturbing the system with heavy-tailed Laplacian
+noise, which can significantly hurt the outcome of the algo-
+rithm.
+5. EXPERIMENTAL EVALUATIONS
+5.1 Datasets
+We choose three real-world benchmark datasets for anomaly
+detection: 1) Statlog Shuttle, 2)Object Images (ALOI),
+and 3) KDD-Cup99 HTTP. These datasets are labeled
+and hence can be used for quantifying the effectiveness of
+anomaly detection measure. These three datasets also cover
+a broad spectrum of applications of unsupervised anomaly
+detection.
+The first dataset we use is the shuttle dataset 1. This
+dataset describes radiator positions in a NASA space shuttle
+with 9 attributes. It was designed for supervised anomaly
+detection. In the original datasets, about 20% of the data
+regarded as anomaly. By following the preprocessing steps
+in [1, 29], we reduce the number of anomalies by selecting
+the class 1 as normal and apply a stratified sampling for the
+classes 2, 3, 5, 6 and 7. The entire datasets contains 34, 987
+instances with 879 anomalies.
+The second dataset is Object Images (ALOI) datasets2.
+The aloi dataset is derived from the “Amsterdam Library
+of Object Images” collection [13]. It contains about 110
+images of 1000 small objects taken under different light
+conditions and viewing angles. From the original images, a
+27 dimensional feature vector was extracted using HSB color
+histograms [30]. Some objects were chosen as anomalies, and
+the data was down-sampled such that the resulting dataset
+contains 50, 000 instances including 1508 anomalies.
+The third dataset is KDD-Cup99 HTTP. 3. KDD-Cup99
+HTTP dataset [25] is the largest benchmark for unsupervised
+anomaly detection evaluation. It contains simulated normal
+and attack traffic on an IP level in a computer network
+environment in order to test intrusion detection systems.
+Following the preprocessing steps in [25, 7], we use HTTP
+traffic only and also limit DoS traffic from the dataset. Fur-
+thermore, the features of “protocol" and “port" information
+were removed. The remaining binary categorical features
+represented as 0 or 1 resulting in a total of 36 dimensions.
+The dataset contains 596, 853 instances with 1055 labeled
+anomalies.
+The statistics of these datasets are shown in Table. 1.
+5.2 Baselines
+We use 11 different baselines methodologies to compare
+with ACE. These methodologies cover the whole spectrum
+of unsupervised anomaly detection techniques with all sorts
+of variations developed over the years. Our baselines cover
+scoring mechanisms based on simple to sophisticated strate-
+gies which include near-neighbor, kernel density estimation,
+graph connectedness, etc. First, we briefly describe all the
+competing algorithms:
+1. ACE: This is the proposed Algorithm 1. We implement
+this algorithm in C++.
+2. LOF (Local Outlier Factor) [6]: This is the most
+popular and the state-of-the-art unsupervised anomaly
+detection algorithm which use density-based local out-
+lier factors in a database. LOF uses a score based on the
+difference between the local density of a point with that
+1https://archive.ics.uci.edu/ml/datasets/Statlog+(Shuttle)
+2http://aloi.science.uva.nl/
+3http://kdd.ics.uci.edu/databases/kddcup99/kddcup99.html
+8
+Table 1: The three datasets used in this paper with their statistics after standard preprocessing.
+Dataset Number of Instances Number of Outliers Dimension
+Statlog Shuttle 34, 987 879 9
+Object Images (ALOI) 50, 000 1508 27
+KDD-Cup99 596, 853 1055 36
+Table 2: Parameter settings for each algorithms on different dataset
+Method Shuttle Image Object KDD-CUP 99
+ACE K = 15, L = 50 K = 15, L = 50 K = 15, L = 50
+LOF k = 5 k = 5 k = 10
+kNN k = 5 k = 5 k = 10
+kNNW k = 5 k = 5 k = 10
+LoOP kreach = kcomp = 5 kreach = kcomp = 5 kreach = kcomp = 10
+λ = 0.2 λ = 0.2 λ = 0.2
+LDOF k = 5 k = 5 k = 10
+ODIN k = 5 k = 5 k = 10
+KDEOS kmin = kmax = 5 kmin = kmax = 5 kmin = kmax = 10
+Banwidth = 5, scale = 0.2 Banwidth = 5, scale = 0.2 Banwidth = 5, scale = 0.2
+Gaussian Kernel Gaussian Kernel Gaussian Kernel
+COF k = 5 k = 5 k = 10
+LDF h = 1, c = 0.1 h = 1, c = 0.1 h = 1, c = 0.1
+Gaussian Kernel Gaussian Kernel Gaussian Kernel
+INFLO k = 5,m = 0.5 k = 5,m = 0.5 k = 10,m = 0.5
+FastVOA k = 5, |S1| = 320, |S2| = 2 k = 5, |S1| = 320, |S2| = 2 k = 10, |S1| = 320, |S2| = 2
+of its near-neighbors as the outlier score. LOF-ELKI
+is the fastest implementation of this algorithm.
+3. FastVOA (Fast Variance of Angles) [27]: FastVOA
+is our benchmark sampling based methodology. FastVOA
+is a randomized algorithm which uses random sampling
+and random projections to estimate the variance of an-
+gle outlier measure. We use the C++ implementation4
+provided by the authors.
+4. kNN (KNNOutlier) [28]: This is the simplest method
+that uses the distance of an object to its k nearest neigh-
+bor. We use the optimized implementation provided
+by the ELKI package.
+5. KNNW (KNNWeightOutlier) [4]: This is an im-
+proved version of the kNN algorithm where instead of
+the distance, we use the sum (accumulated) distance
+of a point to its k nearest neighbors. Sum reduces the
+variance of the scores and it more stable. We again use
+the ELKI implementation.
+6. LoOP (Local Outlier probability) [23]: This is a
+more advanced version of LOF. LoOP uses distance/density
+based algorithm similar to LOF to detect outliers, but
+with statistical methods to achieve better result stabil-
+ity. We use the implementation provided by ELKI.
+7. LDOF (Local Distance based Outlier Factor)
+[40]: LDOF defines outliersness as the ratio of the
+average scores between the target point to all the other
+points in the kNN set, and of the sum all the pair-wise
+distance over all instances in the kNN set. Again we
+use the ELKI package.
+4http://www.itu.dk/people/ndap/FastVOA.zip
+8. ODIN (Outlier Detection using Indegree Num-
+ber) [18]: ODIN defines outlierness as a low number
+of in-adjacent edges in the kNN graph. For more detail
+about this method, please refer [18]. ODIN is available
+in ELKI.
+9. LDF (Local density factor) [24] : LDF replaces
+LOF’s density function by a variance-width Kernel
+density estimation (KDE). In the KDE, the original
+(Euclidean) distance is replaced with the reachability
+distance of LOF. For more details of LDF, please refer
+[24]. LDF is available in ELKI.
+10. KDEOS (Kernel Density Estimation Outlier Score)
+KDEOS also uses Kernel Density Estimation (KDE) in
+the LOF framework. KDEOS keeps the mathematical
+kernel density estimation intact for comparison with
+neighbor densities. The KDE densities are standard-
+ized per point as z-scores with respect to the KDE
+densities of the kNN set and averaged over different
+neighborhood sizes kmin... kmax. For more details of
+KDEOS, please refer to [31].
+11. COF (Connectivity-based Outlier Factor) [38]:
+COF modifies the density estimation of LOF to ac-
+count for the “connectedness" of a neighborhood via
+a minimum spanning tree (MST) rooted at the point
+under study. For details of COF please refer [38].
+12. INFLO (Influenced Outlierness) [20]: INFLO com-
+pares the local model of LOF with the same density
+estimate applied to the reference set of the union of
+kNN and RkNN sets. INFLO is thus an example of a
+local outlier detection strategy for which different defi-
+nitions of the neighborhood are used for the context set
+9
+and reference set. For more details of INFLO, please
+refer [20].
+We use the highly optimized recent ELKI (Environment for
+Developing KDD-Applications Supported by Index-Structures)
+package5 which is the most advanced set of anomaly detec-
+tion algorithms noted for its efficient Java implementations.
+10 of our baselines methodologies are implemented in this
+package. For FastVOA, a state-of-the-art randomized algo-
+rithm for variance of angle computation, we use the C++
+package provided by the authors.
+It should be noted that ACE and FastVOA are imple-
+mented in C++, while ELKI is a java package. A direct wall
+clock comparison is not fair. However, given the simplicity
+of our algorithm (Algorithm 1) which only requires simple
+hashing, use of primitive arrays, and simple summations.
+We do need any complex object other than arrays of short
+integers (primitives only). All other operations are primitive
+multiplications and summations. Thus, we expect that the
+difference between Java and C++ implementation would not
+be any significant for ACE. Furthermore, our results indicate
+a very significant speedup which cannot be explained by the
+difference in platforms.
+5.2.1 Parameter Settings
+Almost all of our baseline algorithms needed hyper-parameters.
+We use most of the default settings of the parameters as
+implemented. For baseline algorithms based on k nearest
+neighbors, the ELKI package has the recommended settings
+for these benchmark datasets. To avoid complications, we
+directly use those recommended settings. k = 5 is recom-
+mended for the Image and the shuttle dataset while k = 10
+is recommended for the KDD-CUP dataset. We also observe
+that minor variations in k do not lead to any significant
+changes. For kernel density estimation based algorithms, we
+use the default choice of Gaussian Kernel. For the sake to
+reproducibility, we summarize the precise hyperparameter
+settings of all the algorithms in Table 2. It should be noted
+that for ACE we use the fixed value of K = 15 and L = 50
+for all the datasets. ACE does not need the near neighbor
+parameter k (small)
+5.2.2 System and Platform Details
+We implemented our ACE algorithm in C++ and con-
+ducted experiments in a 3.50 GHz core Xeon Windows plat-
+form with 16GB of RAM.
+We use g++ (version 5.4.0) as the C++ compiler for ACE
+and fastVOA. For running Java codes of ELKI package, we
+use OpenJDK 64bits version 1.8.0.
+5.3 Methodology and Results
+All of these 12 algorithms associate a score with every
+element in the data. After association, a significantly lower
+score from the mean indicates an anomaly. In order to con-
+vert these scores into an anomaly detections algorithm, there
+are many reasonable strategies. We can rank each candidate,
+based on scores, and report bottom-k as the anomalies, but
+such rankings are not realistic. In real-time applications,
+we only see queries in an online fashion. Therefore, a more
+practical approach is to use a threshold strategy to report
+anomalies. We compute the mean µ and the standard devi-
+ations σ of the scores on the dataset of interest and report
+5https://elki-project.github.io/
+any element with the associated score less than µ− σ as an
+anomaly.
+With this anomaly detection strategy, we run all the 12
+algorithms on the chosen three datasets. We report five
+different numbers separately for each of the three datasets:
+(1) Number of outliers reported, (2) Number of outliers cor-
+rectly reported, (3) Number of Outliers missed, (4) the CPU
+execution time for the different methods, and (5) Relative
+speed with ACE. The CPU executing time does not include
+the end to end time of the complete run of the algorithm,
+which includes data reading, preprocessing (if any), scoring
+and outlier reporting. Relative speedup reports the ratio of
+the time required by a given algorithm to the time required
+by ACE algorithm.
+The results are shown in Table 3, Table. 4, and Table 5 for
+Statlog Shuttle, Object Images (ALOI), and KDD-Cup99
+HTTP datasets respectively.
+Although, there is no clear winner in terms of accuracy.
+LOF seems to be consistently more accurate than others.
+The number of anomalies reported correctly (true positives)
+with ACE is similar to other algorithms. ACE, however,
+seems to report slightly more anomalies (high false positives)
+than other algorithms. This is not a major concern though.
+Few extra false positives are easy to deal with because we
+can always further filter them using a more sophisticated
+algorithm, so long as they are small. Overall, our proposed
+new scoring scheme S(q,D) and the corresponding estima-
+tor performs very competitively, in terms of accuracy, in
+comparison with many successful algorithms.
+The most exciting part is the computational savings with
+ACE. What we observe is that our methodology is signifi-
+cantly faster than any other alternative irrespective of the
+choice of dataset. ACE algorithms is at least around 15x, 45x
+and 60x faster than the best competitor on Statlog Shuttle,
+Object Images (ALOI), and KDD-Cup99 HTTP datasets re-
+spectively. Most of the algorithms, based on near-neighbors
+except FastVOA, have similar speeds. This could be because
+almost all of them requires computation of the order of the
+data. FastVOA is consistently very slow, which we suspect is
+because the estimators used in FastVOA is computationally
+very expensive. FastVOA estimators require multiple sorting
+and frequently computing costly medians. See [27] for details.
+ACE is around 150-300x faster than FastVOA.
+The results are even more exciting if we start considering
+the memory requirements. With K = 15 and L = 50, our
+methodology requires less than 4MB of operating memory
+for the complete run of the algorithm. Since we use the
+same K and L across all datasets, this 4MB requirement
+is unaltered. We never keep any data in the memory. On
+the other hand, all other methods except FastVOA require
+storing complete data in the memory. In our case, the
+KDD-Cup99 HTTP dataset itself is around 165MB to store.
+Although KDD-Cup99 HTTP dataset is the largest labeled
+benchmark, it is still tiny from big-data perspective.
+For real large-scale streaming application, the data size
+can quickly go into terabytes. At such scales algorithms
+requiring storing and/or processing the complete data are
+infeasible.
+The disruptive performance of ACE is not surprising given
+the simplicity of the process. However, as argued, the process
+is a statistically sound procedure for estimating the proposed
+score S(q,D).
+10
+Table 3: Result on Statlog Shuttle Dataset
+Outliers Reported Correctly Reported Outliers Missed Execution Time (s) Speed-up with ACE
+ACE 6763 273 606 0.81s 1x
+LOF 4356 381 498 14.12s 17.4x
+kNN 4897 493 386 12.35s 15.2x
+kNNW 5264 610 269 13.54s 16.7x
+LoOP 6145 201 678 14.51s 17.9x
+LDOF 6433 330 549 16.42s 20.3x
+ODIN 9775 375 504 12.21s 15.1x
+KDEOS 12630 314 565 11.73s 14.5x
+COF 9133 280 599 13.45s 16.6x
+LDF 9809 375 504 19.93s 24.6x
+INFLO 4488 183 696 14.03 17.3x
+FastVOA 8532 271 608 235.10s 290.2x
+Table 4: Result on Object Image Dataset
+Outliers Reported Correctly Reported Outliers Missed Execution Time (s) Speed-up with ACE
+ACE 7216 340 1168 1.26s 1x
+LOF 4476 519 989 72.31s 57.4x
+kNN 5428 447 1061 63.27s 50.2x
+kNNW 5558 329 1508 89.96s 71.4x
+LoOP 5121 253 1179 59.97s 47.6x
+LDOF 7501 470 1038 60.39s 47.9x
+ODIN 10110 162 1346 72.69s 57.6x
+KDEOS 9515 404 1104 55.89s 44.36x
+COF 8746 284 1224 81.74s 64.9x
+LDF 9133 301 1207 60.51s 48.0x
+INFLO 10328 420 1088 72.13s 57.2x
+FastVOA 8931 319 1189 291.10s 231.0x
+Table 5: Result on KDD-Cup99 HTTP Dataset
+Outliers Reported Correctly Reported Outliers Missed Execution Time (s) Speed-up with ACE
+ACE 22160 406 649 23.33s 1x
+LOF 13260 523 532 1813.63s 77.7x
+kNN 15432 365 690 1483.54s 63.5x
+kNNW 14328 460 595 2125.43s 91.1x
+LoOP 16578 396 659 1594.54s 68.3x
+LDOF 16579 496 559 1674.43s 71.7x
+ODIN 18054 365 690 1918.34s 82.2x
+KDEOS 21095 469 586 1428.32s 61.2x
+COF 20658 584 471 2043.43s 87.5x
+LDF 19574 368 687 1485.85s 63.7x
+INFLO 25704 565 490 1684.47s 72.2x
+FastVOA 29316 354 701 3510.26s 150.4x
+6. CONCLUSION
+Statistical measures for popular learning and data mining
+problems, such as anomaly detection, were designed with-
+out taking into account the computational complexity of
+the estimation process. When faced with current big-data
+challenges, most of these estimation process fail to address
+tight resources constraints. In this paper, we showed that
+for the problem of unsupervised anomaly detection, we could
+leverage advances in probabilistic indexing and redesign a
+super fast statistical measure which requires significantly
+lesser resources.
+We proposed ACE algorithm, for unsupervised anomaly
+detection, which is 60-300x faster than existing approaches
+with competing accuracy. Our algorithm requires mere 4MB
+of memory which can utilize L3 caches of modern proces-
+sors leading to around 2-10x savings in latency. The ACE
+algorithm can quickly adapt to drifting volumes of data and
+has very appealing privacy properties. We believe ACE will
+replace existing unsupervised anomaly detection algorithms
+deployed in high-speed high-volume data processing systems.
+11
+Acknowledgments
+This work was supported by National Science Foundation
+(NSF) Award IIS-1652131.
+APPENDIX
+A. PROOF OF THEOREM 1
+Since every arrays are independent, due to independence
+of hash functions, the estimator Ŝ(q,D) is an average of
+L simple estimators. Consider, just the first array A1 and
+the index corresponding to q in this array is H1(q). Now
+the value of A1(H1(q)) can be written using the indicator
+variables Ixi∈Bq (Equations 4) as:
+A1(H1(q)) =
+n∑
+i=1
+Ixi∈Bq . (13)
+Taking expectation on both side and noting the value of
+E(Ixi∈Bq ) from Equation 5, we get
+E[A1(H1(q))] =
+n∑
+i=1
+E[Ixi∈Bq ] (14)
+=
+n∑
+i=1
+pKi = S(q,D) (15)
+Note, the linearity of expectation which is still valid even if
+the indicator variables are correlated. Thus, the count inside
+A1(H1(q)) is an unbiased estimator of the score. Since our
+final estimator Ŝ(q,D) is average of L unbiased estimators
+Aj(Hj(q)), for j = {1, 2, ..., L}. The unbiasedness of Ŝ(q,D)
+follows from the linearity of expectation.
+Similarly for variance, we analyze the variance ofA1(H1(q)),
+Ŝ(q,D) being average over L independent estimators will
+have the variance
+var( ̂S(q,D)) = 1
+L
+V ar(A1(H1(q))).
+The independence is important. Again we have
+A1(H1(q)) =
+∑
+xi∈D
+Ixi∈Bq . (16)
+V ar(A1(H1(q))) = E(A1(H1(q))2)− (E(A1(H1(q))))2
+(17)
+E(A1(H1(q))2) = E
+[( ∑
+xi∈D
+Ixi∈Bq
+)2] (18)
+= E
+[( ∑
+xi∈D
+I2xi∈Bq
+)]
+(19)
++ E
+[ ∑
+xi, xj∈D;i 6=j
+Ixi∈Bq Ixj∈Bq
+]
+(20)
+=
+n∑
+i=1
+pKi +
+∑
+xi, xj∈D;i 6=j
+E[Ixi∈Bq Ixj∈Bq ]
+(21)
+Note E[Ixi∈Bq Ixj∈Bq ] cannot be factored as indicators are
+not independent.
+The final expression follows from substituting the following
+for (E(A1(H1(q))))2 and algebraic manipulations.
+(E(A1(H1(q))))2 = (
+∑
+xi∈D
+pKi )2 (22)
+=
+∑
+xi∈D
+p2Ki +
+∑
+xi, xj∈D;i6=j
+pKi p
+K
+j (23)
+B. PROOF OF THEOREM 2
+The random sampling estimator can be analysed by defin-
+ing indicator variable Ixi∈S as
+Ixi∈S =
+{
+1, if xi is sampled
+0, otherwise.
+(24)
+Due to uniform sampling we have
+E[Ixi∈S ] =
+|S|
+|D| =
+L
+n
+(25)
+Using this indicator variable we can write the random sam-
+pling estimator as:
+RSE(q,D) = n
+L
+∑
+xi∈S
+pKi (26)
+= n
+L
+∑
+xi∈D
+Ixi∈Sp
+K
+i (27)
+Taking expectation and utilizing linearity of expectation
+gives us the desired unbiasedness result.
+The variance part is also straightforward algebraic expan-
+sion, similar to the proof of theorem 1. It leads to
+E[RSE(q,D)2] = n
+2
+L2
+( ∑
+xi∈D
+E[Ixi∈S ]p
+2K
+i (28)
++
+∑
+xi,xj∈D;i 6=j
+E[Ixi∈SIxj∈S ]p
+K
+i p
+K
+j
+)
+(29)
+Since xi and xj are sampled independently, Ixi∈S and Ixj∈S
+are independent for any i and j. Therefore,
+E[RSE(q,D)2] = n
+2
+L2
+( ∑
+xi∈D
+L
+n
+p2Ki (30)
++
+∑
+xi,xj∈D;i6=j
+L2
+n2
+pKi p
+K
+j
+)
+(31)
+Subtracting the value of E[RSE(q,D)]2 further simplifies the
+variance to the desired expression.
+12
+3. REFERENCES
+[1] N. Abe, B. Zadrozny, and J. Langford. Outlier
+detection by active learning. In Proceedings of the 12th
+ACM SIGKDD international conference on Knowledge
+discovery and data mining, pages 504–509. ACM, 2006.
+[2] E. Achtert, T. Bernecker, H. Kriegel, E. Schubert, and
+A. Zimek. ELKI in time: ELKI 0.2 for the performance
+evaluation of distance measures for time series. In
+Advances in Spatial and Temporal Databases, 11th
+International Symposium, SSTD 2009, Aalborg,
+Denmark, July 8-10, 2009, Proceedings, pages 436–440,
+2009.
+[3] N. Ailon and B. Chazelle. Approximate nearest
+neighbors and the fast johnson-lindenstrauss transform.
+In Proceedings of the thirty-eighth annual ACM
+symposium on Theory of computing, pages 557–563.
+ACM, 2006.
+[4] F. Angiulli and C. Pizzuti. Outlier mining in large
+high-dimensional data sets. IEEE transactions on
+Knowledge and Data engineering, 17(2):203–215, 2005.
+[5] K. Bhaduri, M. D. Stefanski, and A. N. Srivastava.
+Privacy-preserving outlier detection through random
+nonlinear data distortion. IEEE Transactions on
+Systems, Man, and Cybernetics, Part B (Cybernetics),
+41(1):260–272, 2011.
+[6] M. M. Breunig, H.-P. Kriegel, R. T. Ng, and J. Sander.
+Lof: identifying density-based local outliers. In ACM
+sigmod record, volume 29, pages 93–104. ACM, 2000.
+[7] U. Carrasquilla. Benchmarking algorithms for detecting
+anomalies in large datasets. MeasureIT, Nov, pages
+1–16, 2010.
+[8] A. Chakrabarti, V. Satuluri, A. Srivathsan, and
+S. Parthasarathy. A bayesian perspective on locality
+sensitive hashing with extensions for kernel methods.
+ACM Transactions on Knowledge Discovery from Data
+(TKDD), 10(2):19, 2015.
+[9] V. Chandola, A. Banerjee, and V. Kumar. Anomaly
+detection: A survey. ACM computing surveys (CSUR),
+41(3):15, 2009.
+[10] M. S. Charikar. Similarity estimation techniques from
+rounding algorithms. In Proceedings of the thiry-fourth
+annual ACM symposium on Theory of computing, pages
+380–388. ACM, 2002.
+[11] P. Conway, N. Kalyanasundharam, G. Donley,
+K. Lepak, and B. Hughes. Cache hierarchy and
+memory subsystem of the amd opteron processor.
+IEEE micro, 30(2), 2010.
+[12] A. Dasgupta, R. Kumar, and T. Sarlós. Fast
+locality-sensitive hashing. In Proceedings of the 17th
+ACM SIGKDD international conference on Knowledge
+discovery and data mining, pages 1073–1081. ACM,
+2011.
+[13] J.-M. Geusebroek, G. J. Burghouts, and A. W.
+Smeulders. The amsterdam library of object images.
+International Journal of Computer Vision,
+61(1):103–112, 2005.
+[14] A. Gionis, P. Indyk, R. Motwani, et al. Similarity
+search in high dimensions via hashing. In VLDB,
+volume 99, pages 518–529, 1999.
+[15] M. X. Goemans and D. P. Williamson.
+.879-approximation algorithms for max cut and max
+2sat. In Proceedings of the twenty-sixth annual ACM
+symposium on Theory of computing, pages 422–431.
+ACM, 1994.
+[16] O. Goldreich. Secure multi-party computation.
+Manuscript. Preliminary version, pages 86–97, 1998.
+[17] N. Görnitz, M. M. Kloft, K. Rieck, and U. Brefeld.
+Toward supervised anomaly detection. Journal of
+Artificial Intelligence Research, 2013.
+[18] V. Hautamaki, I. Karkkainen, and P. Franti. Outlier
+detection using k-nearest neighbour graph. In Pattern
+Recognition, 2004. ICPR 2004. Proceedings of the 17th
+International Conference on, volume 3, pages 430–433.
+IEEE, 2004.
+[19] P. Indyk and R. Motwani. Approximate nearest
+neighbors: towards removing the curse of
+dimensionality. In Proceedings of the thirtieth annual
+ACM symposium on Theory of computing, pages
+604–613. ACM, 1998.
+[20] W. Jin, A. K. Tung, J. Han, and W. Wang. Ranking
+outliers using symmetric neighborhood relationship. In
+Pacific-Asia Conference on Knowledge Discovery and
+Data Mining, pages 577–593. Springer, 2006.
+[21] K. Kenthapadi, A. Korolova, I. Mironov, and
+N. Mishra. Privacy via the johnson-lindenstrauss
+transform. arXiv preprint arXiv:1204.2606, 2012.
+[22] J. Kleinberg. Bursty and hierarchical structure in
+streams. In Proceedings of the eighth ACM SIGKDD
+international conference on Knowledge discovery and
+data mining, pages 91–101. ACM, 2002.
+[23] H.-P. Kriegel, P. Kröger, E. Schubert, and A. Zimek.
+Loop: local outlier probabilities. In Proceedings of the
+18th ACM conference on Information and knowledge
+management, pages 1649–1652. ACM, 2009.
+[24] L. J. Latecki, A. Lazarevic, and D. Pokrajac. Outlier
+detection with kernel density functions. In International
+Workshop on Machine Learning and Data Mining in
+Pattern Recognition, pages 61–75. Springer, 2007.
+[25] K. Leung and C. Leckie. Unsupervised anomaly
+detection in network intrusion detection using clusters.
+In Proceedings of the Twenty-eighth Australasian
+conference on Computer Science-Volume 38, pages
+333–342. Australian Computer Society, Inc., 2005.
+[26] A. Machanavajjhala, D. Kifer, J. Abowd, J. Gehrke,
+and L. Vilhuber. Privacy: Theory meets practice on
+the map. In Data Engineering, 2008. ICDE 2008.
+IEEE 24th International Conference on, pages 277–286.
+IEEE, 2008.
+[27] N. Pham and R. Pagh. A near-linear time
+approximation algorithm for angle-based outlier
+detection in high-dimensional data. In Proceedings of
+the 18th ACM SIGKDD international conference on
+Knowledge discovery and data mining, pages 877–885.
+ACM, 2012.
+[28] S. Ramaswamy, R. Rastogi, and K. Shim. Efficient
+algorithms for mining outliers from large data sets. In
+ACM Sigmod Record, volume 29, pages 427–438. ACM,
+2000.
+[29] M. Reif, M. Goldstein, A. Stahl, and T. M. Breuel.
+Anomaly detection by combining decision trees and
+parametric densities. In Pattern Recognition, 2008.
+ICPR 2008. 19th International Conference on, pages
+1–4. IEEE, 2008.
+13
+[30] E. Schubert, R. Wojdanowski, A. Zimek, and H.-P.
+Kriegel. On evaluation of outlier rankings and outlier
+scores. In Proceedings of the 2012 SIAM International
+Conference on Data Mining, pages 1047–1058. SIAM,
+2012.
+[31] E. Schubert, A. Zimek, and H.-P. Kriegel. Generalized
+outlier detection with flexible kernel density estimates.
+In Proceedings of the 2014 SIAM International
+Conference on Data Mining, pages 542–550. SIAM,
+2014.
+[32] A. Shrivastava. Simple and efficient weighted minwise
+hashing. In Advances in Neural Information Processing
+Systems, pages 1498–1506, 2016.
+[33] A. Shrivastava. Optimal densification for fast and
+accurate minwise hashing. In ICML, 2017.
+[34] A. Shrivastava and P. Li. Densifying one permutation
+hashing via rotation for fast near neighbor search. In
+ICML, pages 557–565, 2014.
+[35] A. Shrivastava and P. Li. Improved densification of one
+permutation hashing. In UAI, 2014.
+[36] R. Spring and A. Shrivastava. A New Unbiased and
+Efficient Class of LSH-Based Samplers and Estimators
+for Partition Function Computation in Log-Linear
+Models. ArXiv e-prints, 2017.
+[37] R. Spring and A. Shrivastava. Scalable and sustainable
+deep learning via randomized hashing. In KDD, 2017.
+[38] J. Tang, Z. Chen, A. W.-C. Fu, and D. W. Cheung.
+Enhancing effectiveness of outlier detections for low
+density patterns. In Pacific-Asia Conference on
+Knowledge Discovery and Data Mining, pages 535–548.
+Springer, 2002.
+[39] J. Vaidya and C. Clifton. Privacy-preserving outlier
+detection. In Data Mining, 2004. ICDM’04. Fourth
+IEEE International Conference on, pages 233–240.
+IEEE, 2004.
+[40] K. Zhang, M. Hutter, and H. Jin. A new local
+distance-based outlier detection approach for scattered
+real-world data. Advances in knowledge discovery and
+data mining, pages 813–822, 2009.
+14
+

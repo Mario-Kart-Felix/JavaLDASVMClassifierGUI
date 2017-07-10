@@ -1,0 +1,910 @@
+The Pyramid Match Kernel:
+Discriminative Classification with Sets of Image Features
+Kristen Grauman and Trevor Darrell
+Massachusetts Institute of Technology
+Computer Science and Artificial Intelligence Laboratory
+Cambridge, MA, USA
+Abstract
+Discriminative learning is challenging when examples are
+sets of features, and the sets vary in cardinality and lack
+any sort of meaningful ordering. Kernel-based classifica-
+tion methods can learn complex decision boundaries, but
+a kernel over unordered set inputs must somehow solve
+for correspondences – generally a computationally expen-
+sive task that becomes impractical for large set sizes. We
+present a new fast kernel function which maps unordered
+feature sets to multi-resolution histograms and computes a
+weighted histogram intersection in this space. This “pyra-
+mid match” computation is linear in the number of features,
+and it implicitly finds correspondences based on the finest
+resolution histogram cell where a matched pair first appears.
+Since the kernel does not penalize the presence of extra fea-
+tures, it is robust to clutter. We show the kernel function
+is positive-definite, making it valid for use in learning al-
+gorithms whose optimal solutions are guaranteed only for
+Mercer kernels. We demonstrate our algorithm on object
+recognition tasks and show it to be accurate and dramati-
+cally faster than current approaches.
+1. Introduction
+A variety of representations used in computer vision consist
+of unordered sets of features or parts, where each set varies
+in cardinality, and the correspondence between the features
+across each set is unknown. For instance, an image may be
+described by a set of detected local affine-invariant regions,
+a shape may be described by a set of local descriptors de-
+fined at each edge point, or a person’s face may be repre-
+sented by a set of patches with different facial parts. In such
+cases, one set of feature vectors denotes a single instance of
+a particular class of interest (an object, scene, shape, face,
+etc.), and it is expected that the number of features will vary
+across examples due to viewpoint changes, occlusions, or
+inconsistent detections by the interest operator.
+To perform learning tasks like categorization or recogni-
+tion with such representations is challenging. While gen-
+erative methods have had some success, kernel-based dis-
+Figure 1: The pyramid match kernel intersects histogram pyra-
+mids formed over local features, approximating the optimal corre-
+spondences between the sets’ features.
+criminative methods are known to represent complex deci-
+sion boundaries very efficiently and generalize well to un-
+seen data [24, 21]. For example, the Support Vector Ma-
+chine (SVM) is a widely used approach to discriminative
+classification that finds the optimal separating hyperplane
+between two classes. Kernel functions, which measure sim-
+ilarity between inputs, introduce non-linearities to the de-
+cision functions; the kernel non-linearly maps two exam-
+ples from the input space to the inner product in some fea-
+ture space. However, conventional kernel-based algorithms
+are designed to operate on fixed-length vector inputs, where
+each vector entry corresponds to a particular global attribute
+for that instance; the commonly used general-purpose ker-
+nels defined on n inputs (e.g., Gaussian RBF, polynomial)
+are not applicable in the space of vector sets.
+In this work we propose a pyramid match kernel – a
+new kernel function over unordered feature sets that allows
+them to be used effectively and efficiently in kernel-based
+learning methods. Each feature set is mapped to a multi-
+resolution histogram that preserves the individual features’
+distinctness at the finest level. The histogram pyramids
+are then compared using a weighted histogram intersection
+computation, which we show defines an implicit correspon-
+dence based on the finest resolution histogram cell where a
+matched pair first appears (see Figure 1).
+The similarity measured by the pyramid match approx-
+imates the similarity measured by the optimal correspon-
+dences between feature sets of unequal cardinality (i.e., the
+partial matching that optimally maps points in the lower
+cardinality set to some subset of the points in the larger set,
+such that the summed similarities between matched points
+is maximal). Our kernel is extremely efficient and can be
+computed in time that is linear in the sets’ cardinality. We
+show that our kernel function is positive-definite, meaning
+that it is appropriate to use with learning methods that guar-
+antee convergence to a unique optimum only for positive-
+definite kernels (e.g., SVMs).
+Because it does not penalize the presence of superflu-
+ous data points, the proposed kernel is robust to clutter. As
+we will show, this translates into the ability to handle un-
+segmented images with varying backgrounds or occlusions.
+The kernel also respects the co-occurrence relations inher-
+ent in the input sets: rather than matching features in a set
+individually, ignoring potential dependencies conveyed by
+features within one set, our similarity measure captures the
+features’ joint statistics.
+Other approaches to this problem have recently been pro-
+posed [25, 14, 3, 12, 27, 16, 20], but unfortunately each of
+these techniques suffers from some number of the follow-
+ing drawbacks: computational complexities that make large
+feature set sizes infeasible; limitations to parametric distri-
+butions which may not adequately describe the data; ker-
+nels that are not positive-definite (do not guarantee unique
+solutions for an SVM); limitations to sets of equal size; and
+failure to account for dependencies within feature sets.
+Our method addresses all of these issues, resulting in
+a kernel appropriate for comparing unordered, variable-
+length feature sets within any existing kernel-based learn-
+ing paradigm. We demonstrate our algorithm with object
+recognition tasks and show that its accuracy is compara-
+ble to current approaches, while requiring significantly less
+computation time.
+2. Related Work
+In this section, we review related work on discriminative
+classification with sets of features, using kernels and SVMs
+for recognition, and multi-resolution image representations.
+Object recognition is a challenging problem that re-
+quires strong generalization ability from a classifier in or-
+der to cope with the broad variety in illumination, view-
+point, occlusions, clutter, intra-class appearances, and de-
+formations that images of the same object or object class
+will exhibit. While researchers have shown promising re-
+sults applying SVMs to object recognition, they have gen-
+erally used global image features – ordered features of equal
+length measured from the image as a whole, such as color or
+grayscale histograms or vectors of raw pixel data [5, 18, 17].
+Such global representations are known to be sensitive to
+real-world imaging conditions, such as occlusions, pose
+Method Complexity C P M U
+Match [25] O(dm2) x x
+Exponent [14] O(dm2) x x x
+Greedy [3] O(dm2) x x x
+Princ. ang. [27] O(dm3) x x
+Bhattach.’s [12] O(dm3) x x x
+KL-div. [16] O(dm2) x x
+Pyramid O(dm log D) x x x x
+Table 1: Comparing kernel approaches to matching unordered
+sets. Columns show each method’s computational cost and
+whether its kernel captures co-occurrences (C), is positive-definite
+(P), does not assume a parametric model (M), and can handle sets
+of unequal cardinality (U). d is vector dimension, m is maximum
+set cardinality, and D is diameter of vector space. “Pyramid”
+refers to the proposed kernel.
+changes, or image noise.
+Recent work has shown that local features invariant to
+common image transformations (e.g., SIFT [13]) are a pow-
+erful representation for recognition, because the features
+can be reliably detected and matched across instances of
+the same object or scene under different viewpoints, poses,
+or lighting conditions. Most approaches, however, perform
+recognition with local feature representations using nearest-
+neighbor (e.g., [1, 8, 22, 2]) or voting-based classifiers fol-
+lowed by an alignment step (e.g., [13, 15]); both may be
+impractical for large training sets, since their classification
+times increase with the number of training examples. An
+SVM, on the other hand, identifies a sparse subset of the
+training examples (the support vectors) to delineate a deci-
+sion boundary.
+Kernel-based learning algorithms, which include SVMs,
+kernel PCA, or Gaussian Processes, have become well-
+established tools that are useful in a variety of contexts,
+including discriminative classification, regression, density
+estimation, and clustering [21]. More recently, attention
+has been focused on developing specialized kernels that can
+more fully leverage these tools for situations where the data
+cannot be naturally represented by a Euclidean vector space,
+such as graphs, strings, or trees.
+Several researchers have designed similarity measures
+that operate on sets of unordered features. See Table 1
+for a concise comparison of the approaches. The authors
+of [25] propose a kernel that averages over the similarities
+of the best matching feature found for each feature member
+within the other set. The use of the “max” operator in this
+kernel makes it non-Mercer (i.e., not positive-definite – see
+Section 3), and thus it lacks convergence guarantees when
+used in an SVM. A similar kernel is given in [14], which
+also considers all possible feature matchings but raises the
+similarity between each pair of features to a given power.
+Both [25] and [14] have a computational complexity that
+is quadratic in the number of features. Furthermore, both
+match each feature in a set independently, ignoring poten-
+tially useful co-occurrence information. In contrast, our
+kernel captures the joint statistics of co-occurring features
+by matching them concurrently as a set.
+The method given in [3] is based on finding a sub-
+optimal matching between two sets using a greedy heuris-
+tic; although this results in a non-Mercer kernel, the au-
+thors provide a means of tuning the kernel hyperparameter
+so as to limit the probability that a given kernel matrix is
+not positive-definite. The authors of [27] measure similar-
+ity in terms of the principal angle between the two linear
+subspaces spanned by two sets’ vector elements. This ker-
+nel is only positive-definite for sets of equal cardinality, and
+its complexity is cubic in the number of features. In [20],
+an algebraic kernel is used to combine similarities given by
+vector-based kernels, with the weighting chosen to reflect
+whether the features are in alignment (ordered). When set
+cardinalities vary, inputs are padded with zeros so as to form
+equally-sized matrices.
+In [12], a Gaussian is fit to each set of vectors, and
+then the kernel value between two sets is the Bhattacharyya
+affinity between their Gaussian distributions. As noted by
+the authors, the method is constrained to using a Gaussian
+model in order to have a closed form solution. In practice,
+the method in [12] is also limited to sets with small car-
+dinality, because its complexity is cubic in the number of
+features. Similarly, the authors of [16] fit a Gaussian to a
+feature set, and then compare sets using KL-divergence as
+a distance measure. Unlike the kernels of [12] and [16],
+which are based on parametric models that assume inputs
+will fit a certain form, our method is model-free and main-
+tains the distinct data points in the representation.
+An alternative approach when dealing with unordered set
+data is to designate prototypical examples from each class,
+and then represent examples in terms of their distances to
+each prototype; standard algorithms that handle vectors in
+a Euclidean space are then applicable. The authors of [28]
+build such a classifier for handwritten digits, and use the
+shape context distance of [1] as the measure of similar-
+ity. The issues faced by such a prototype-based method
+are determining which examples should serve as prototypes,
+choosing how many there should be, and updating the pro-
+totypes properly when new types of data are encountered.
+Our feature representation is based on a multi-resolution
+histogram, or “pyramid”, which is computed by binning
+data points into discrete regions of increasingly larger size.
+Single-level histograms have been used in various visual
+recognition systems, one of the first being that of [23],
+where the intersection of global color histograms was used
+to compare images. Pyramids have been shown to be a
+useful representation in a wide variety of image processing
+tasks – see [9] for a summary.
+In [10], multi-resolution histograms are compared with
+L1 distance to approximate a least-cost matching of equal-
+mass global color histograms for nearest neighbor image re-
+trievals. This work inspired our use of a similar representa-
+tion for point sets. However, unlike [10], our method builds
+a discriminative classifier, and it compares histograms with
+a weighted intersection rather than L1. Our method allows
+inputs to have unequal cardinalities and thus enables par-
+tial matchings, which is important in practice for handling
+clutter and unsegmented images.
+We believe ours is the first work to advocate for the use
+of a histogram pyramid as an explicit discriminative fea-
+ture formed over sets, and the first to show its connection
+to optimal partial matching when used with a hierarchical
+weighted histogram intersection similarity measure.
+3. Approach
+Kernel-based learning algorithms [21, 24] are founded on
+the idea of embedding data into a Euclidean space, and then
+seeking linear relations among the embedded data. For ex-
+ample, an SVM finds the optimal separating hyperplane be-
+tween two classes in an embedded space (also referred to
+as the feature space). A kernel function K : X × X → 
+serves to map pairs of data points in an input space X to
+their inner product in the embedding space F , thereby eval-
+uating the similarities between all points and determining
+their relative positions. Linear relations are sought in the
+embedded space, but a decision boundary may still be non-
+linear in the input space, depending on the choice of a fea-
+ture mapping function Φ : X → F .
+The main contribution of this work is a new kernel func-
+tion based on implicit correspondences that enables dis-
+criminative classification for unordered, variable-length sets
+of vectors. The kernel is provably positive-definite. The
+main advantages of our algorithm are its efficiency, its use
+of implicit correspondences that respect the joint statistics
+of co-occurring features, and its resistance to clutter or “su-
+perfluous” data points.
+The basic idea of our method is to map sets of features
+to multi-resolution histograms, and then compare the his-
+tograms with a weighted histogram intersection measure in
+order to approximate the similarity of the best partial match-
+ing between the feature sets. We call the proposed kernel a
+“pyramid match kernel” because input sets are converted to
+multi-resolution histograms.
+3.1. The Pyramid Match Kernel
+We consider an input space X of sets of d-dimensional fea-
+ture vectors that are bounded by a sphere of diameter D and
+whose minimum inter-vector distance is
+√
+d
+2 :
+1
+X =
+{
+x|x = {[f11 , . . . , f1d ], . . . , [fmx1 , . . . , fmxd ]
+}}
+, (1)
+1This may be enforced by scaling the data appropriately.
+where mx varies across instances in X .
+The feature extraction function Ψ is defined as:
+Ψ(x) = [H−1(x), H0(x), . . . , HL(x)], (2)
+where L = log2 D, x ∈ X , Hi(x) is a histogram vector
+formed over data x using d-dimensional bins of side length
+2i, and Hi(x) has a dimension ri =
+(
+D
+2i
+√
+d
+)d
+. In other
+words, Ψ(x) is a vector of concatenated histograms, where
+each subsequent component histogram has bins that double
+in size (in all d dimensions) compared to the previous one.
+The bins in the finest-level histogram H−1 are small enough
+that each d-dimensional data point from sets in X falls into
+its own bin, and then the bin size increases until all data
+points from sets in X fall into a single bin at level L.
+The pyramid match kernel K∆ measures similarity be-
+tween point sets based on implicit correspondences found
+within this multi-resolution histogram space. The similarity
+between two input sets is defined as the weighted sum of
+the number of feature matchings found at each level of the
+pyramid formed by Ψ:
+K∆ (Ψ(y), Ψ(z)) =
+L∑
+i=0
+wiNi, (3)
+where Ni signifies the number of newly matched pairs at
+level i. A new match is defined as a pair of features that
+were not in correspondence at any finer resolution level.
+The kernel implicitly finds correspondences between
+point sets, if we consider two points matched once they fall
+into the same histogram bin (starting at the finest resolution
+level where each point is guaranteed to be in its own bin).
+The matching is equivalent to a hierarchical process: vec-
+tors not found to correspond at a high resolution have the
+opportunity to be matched at lower resolutions. For exam-
+ple, in Figure 2, there are two points matched at the finest
+scale, two new matches at the medium scale, and one at the
+coarsest scale. K∆’s output value reflects the overall sim-
+ilarity of the matching: each newly matched pair at level
+i contributes a value wi that is proportional to how similar
+two points matching at that level must be, as determined by
+the bin size. Note that the sum in Eqn. 3 starts with index
+i = 0, because the definition of Ψ insures that no points
+match at level i = −1.
+To calculate Ni, the kernel makes use of a histogram
+intersection function I, which measures the “overlap” be-
+tween two histograms’ bins:
+I (A,B) =
+r∑
+j=1
+min
+(
+A(j),B(j)
+)
+, (4)
+where A and B are histograms with r bins, and A(j) de-
+notes the count of the jth bin of A.
+y                     z
+y                     z
+y                      z
+(a) Point sets
+H
+0
+(y) H
+0
+(z)
+H
+1
+(y) H
+1
+(z)
+H
+2
+(y) H
+2
+(z)
+(b) Histogram pyramids
+min(H
+0
+(y), H
+0
+(z))
+I
+0
+=2
+min(H
+1
+(y), H
+1
+(z))
+I
+1
+=4
+min(H
+2
+(y), H
+2
+(z))
+I
+2
+=5
+(c) Intersections
+Figure 2: A pyramid match determines a partial correspondence
+by matching points once they fall into the same histogram bin. In
+this example, two 1-D feature sets are used to form two histogram
+pyramids. Each row corresponds to a pyramid level. H−1 is not
+pictured here because no matches are formed at the finest level. In
+(a), the set y is on the left side, and the set z is on the right. (Points
+are distributed along the vertical axis, and these same points are
+repeated at each level.) Light dotted lines are bin boundaries, bold
+dashed lines indicate a pair matched at this level, and bold solid
+lines indicate a match already formed at a finer resolution level. In
+(b) multi-resolution histograms are shown, with bin counts along
+the horizontal axis. In (c) the intersection pyramid between the
+histograms in (b) are shown. K∆ uses this to measure how many
+new matches occurred at each level. Ii refers to I(Hi(y), Hi(z)).
+Here, Ii = 2, 4, 5 across levels, and therefore the number of new
+matches found at each level are Ni = 2, 2, 1. The sum over Ni,
+weighted by wi = 1, 12 ,
+1
+4
+, gives the pyramid match similarity.
+Histogram intersection effectively counts the number of
+points in two sets which match at a given quantization level,
+i.e., fall into the same bin. To calculate the number of newly
+matched pairs Ni induced at level i, it is sufficient to com-
+pute the difference between successive histogram levels’ in-
+tersections:
+Ni = I (Hi(y), Hi(z)) − I (Hi−1(y), Hi−1(z)) , (5)
+where Hi refers to the ith component histogram generated
+by Ψ in Eqn. 2. Note that the kernel is not searching explic-
+itly for similar points – it never computes distances between
+the vectors in each set. Instead, it simply uses the change
+in intersection values at each histogram level to count the
+matches as they occur.
+The number of new matches found at each level in
+the pyramid is weighted according to the size of that
+histogram’s bins: matches made within larger bins are
+weighted less than those found in smaller bins. Since the
+largest diagonal of a d-dimensional hypercube bin with
+sides of length 2i has length 2i
+√
+d, the maximal distance
+between any two points in one bin doubles at each increas-
+ingly coarser histogram in the pyramid. Thus, the number
+of new matches induced at level i is weighted by 12i to re-
+flect the (worst-case) similarity of points matched at that
+level. Intuitively, this means that similarity between vectors
+(features in y and z)) at a finer resolution – where features
+are most distinct – is rewarded more heavily than similarity
+between vectors at a coarser level.
+From Eqns. 3, 4, and 5, we define the (un-normalized)
+pyramid match kernel function:
+K̃∆ (Ψ(y), Ψ(z)) =
+LX
+i=0
+1
+2i
+“
+I (Hi(y), Hi(z))−I(Hi−1(y), Hi−1(z))
+”
+,
+(6)
+where y, z ∈ X , and Hi(x) is the ith histogram in Ψ(x).
+We normalize this value by the product of each input’s self-
+similarity to avoid favoring larger input sets, arriving at the
+final kernel value K∆ (P, Q) = 1√
+C
+K̃∆ (P,Q), where C =
+K̃∆ (P, P) K̃∆ (Q, Q).
+In order to alleviate quantization effects that may arise
+due to the discrete histogram bins, we can combine the
+kernel values resulting from multiple (T ) pyramid matches
+formed under different multi-resolution histograms with
+randomly shifted bins. Each dimension of each of the T
+pyramids is shifted by an amount chosen uniformly at ran-
+dom between 0 and D. This yields T feature mappings
+Ψ1, . . . , ΨT that are applied as in Eqn. 2 to map an input set
+y to T multi-resolution histograms: [Ψ1(y), . . . , ΨT (y)].
+For inputs y and z, the combined kernel value is then∑T
+j=1 K∆ (Ψj(y), Ψj(z)).
+3.2. Partial Match Correspondences
+Our kernel allows sets of unequal cardinalities, and there-
+fore it enables partial matchings, where the points of the
+smaller set are mapped to some subset of the points in the
+larger set. Dissimilarity is only judged on the most simi-
+lar part of the empirical distributions, and superfluous data
+points are ignored; the result is a robust similarity measure
+that accommodates inputs expected to contain extraneous
+vector entries. This is a common situation when recogniz-
+ing objects in images, due for instance to background vari-
+ations, clutter, or changes in object pose that cause different
+subsets of features to be visible. Thus, the proposed kernel
+is equipped to handle unsegmented examples, as we will
+demonstrate in Section 4.
+By construction, the pyramid match offers an approxi-
+mation of the optimal correspondence-based matching be-
+tween two feature sets, in which the overall similarity be-
+tween corresponding points is maximized. When input
+sets have equal cardinalities, histogram intersection can
+be reduced to an L1 distance: I(H(y), H(z)) = m −
+1
+2 ||H(y) − H(z)||L1 if m = |y| = |z| [23]. Intersec-
+tion over the pyramid with weights set to wi = 12i then
+strictly approximates the optimal bipartite matching [10].
+With variable cardinalities no similar proof is available, but
+we show empirically below that the intersection of multi-
+resolution histograms approximates the best partial match-
+ing both in simulation and in practice.
+Since the pyramid match defines correspondences across
+entire sets simultaneously, it inherently accounts for de-
+pendencies between various features occurring in one set.
+In contrast, previous approaches have used each feature in
+a set to independently index into the second set; this ig-
+nores possibly useful information that is inherent in the co-
+occurrence of a set of distinctive features, and it fails to
+distinguish between instances where an object has varying
+numbers of similar features since multiple features may be
+matched to a single feature in the other set [25, 14].
+3.3. Satisfying Mercer’s Condition
+Only positive semi-definite kernels guarantee an optimal
+solution to kernel-based algorithms based on convex opti-
+mization, including SVMs. According to Mercer’s theorem,
+a kernel K is positive semi-definite if and only if
+K(xi,xj) = 〈Φ(xi), Φ(xj)〉, ∀xi,xj ∈ X, (7)
+where 〈·〉 denotes a scalar dot product. This insures that
+the kernel corresponds to an inner product in some feature
+space, where kernel methods can search for linear relations
+[21].
+Histogram intersection on single resolution histograms
+over multi-dimensional data is a positive-definite similarity
+function [17]. Using this construct and the closure proper-
+ties of valid kernel functions, we can show that the pyramid
+match kernel is a Mercer kernel. The definition given in
+Eqn. 6 is algebraically equivalent to
+K∆ (Ψ(y), Ψ(z)) =
+min(|y|, |z|)
+2L
++
+L−1X
+i=0
+1
+2i+1
+I (Hi(y), Hi(z)) , (8)
+since I (H−1(y), H−1(z)) = 0, and I (HL(y), HL(z)) =
+min(|y|, |z|) by the construction of the pyramid. Given that
+Mercer kernels are closed under both addition and scaling
+by a positive constant [21], we only need to show that the
+minimum cardinality between two sets (min(|y|, |z|)) cor-
+responds to a positive semi-definite kernel.
+The cardinality of an input set x can be encoded as a bi-
+nary vector containing |x| ones followed by Z − |x| zeros,
+where Z is the maximum cardinality of any set. The inner
+product between two such expansions is equivalent to the
+cardinality of the smaller set, thus satisfying Mercer’s con-
+dition. Note that this binary expansion and the one in [17]
+only serve to prove positive-definiteness and are never com-
+puted explicitly. Therefore, K∆ is valid for use in existing
+learning methods that require Mercer kernels.
+3.4. Efficiency
+The time required to compute Ψ for an input set with
+m d-dimensional features is O(dz log D), where z =
+max(m, k) and k is the maximum feature value in a sin-
+gle dimension. (Typically m > k.) The bin coordinates
+corresponding to non-zero histogram entries for each of the
+log D quantization levels are computed directly during a
+scan of the m input vectors; these entries are sorted by the
+bin indices and the bin counts for all entries with the same
+index are summed to form one entry. This sorting requires
+only O(dm + kd) time using the radix-sort algorithm, a
+linear time sorting algorithm that is applicable to the inte-
+ger bin indices [6]. The histogram pyramid that results is
+high-dimensional, but very sparse, with only O(m log D)
+non-zero entries that need to be stored.
+The complexity of K∆ is O(dm log D), since computing
+the intersection values for histograms that have been sorted
+by bin index requires time linear in the number of non-zero
+entries (not the number of actual bins). Generating mul-
+tiple pyramid matches with randomly shifted grids simply
+scales the complexity by T , the constant number of shifts.
+All together, the complexity of computing both the pyra-
+mids and kernel values is O(Tdm log D). In contrast, cur-
+rent approaches have polynomial dependence on m, which
+limits the practicality of large input sizes. See Table 1 for
+complexity comparisons.
+4. Results
+In this section we show that in simulation the pyramid
+match kernel approximates the best partial matching of fea-
+ture sets, and then we report on object recognition experi-
+ments with baseline comparisons to other methods.
+4.1. Approximate Partial Matchings
+As described in Section 3, the pyramid match approximates
+the optimal correspondence-based matching between two
+feature sets. While for the case of equal cardinalities it re-
+duces to an L1 norm in a space that is known to strictly ap-
+proximate the optimal bijective matching [10], empirically
+we find the pyramid kernel approximates the optimal partial
+matching of unequal cardinality sets.
+We conducted an experiment to evaluate how close the
+correspondences implicitly assigned by the pyramid match
+are to the true optimal correspondences – the matching
+that results in the maximal summed similarity between cor-
+responding points. We compared our kernel’s outputs to
+those produced by the optimal partial matching obtained via
+a linear programming solution to the transportation prob-
+lem [19].2
+2This optimal solution requires time exponential in the number of fea-
+tures in the worst case, although it often exhibits polynomial-time behavior
+in practice. In contrast, the pyramid kernel’s complexity is only linear in
+the number of features.
+0 5000 10000
+0
+2000
+4000
+6000
+8000
+10000
+12000
+14000
+16000
+18000
+Approximation of the optimal bijective matching
+D
+is
+ta
+n
+ce
+L1
+Pyramid match
+Optimal
+0 5000 10000
+0
+0.2
+0.4
+0.6
+0.8
+1
+1.2
+1.4
+1.6
+1.8
+2
+x 10
+4Approximation of the optimal partial matching
+L1
+Pyramid match
+Optimal
+D
+is
+ta
+n
+ce
+Figure 3: The pyramid match approximates the optimal corre-
+spondences, even for sets of unequal cardinalities (right). See text
+for details. (This figure is best viewed in color.)
+We generated two data sets, each with 100 point sets
+containing 2-D points with values uniformly distributed be-
+tween one and 1000. In one data set, each point set had
+equal cardinalities (100 points each), while in the other car-
+dinalities varied randomly from 5 to 100. Figure 3 shows
+the results of 10,000 pairwise set-to-set comparisons com-
+puted according to the correspondences produced by the op-
+timal matching, the pyramid match with T = 1, and the
+L1 embedding of [10], respectively, for each of these sets.
+Note that in these figures we plot distance (inverse similar-
+ity), and the values were sorted according to the optimal
+measure’s magnitudes for visualization purposes.
+This figure shows that our method does indeed find
+matchings that are consistently on par with the optimal so-
+lution. In the equal cardinality case (plot on left), both the
+pyramid match and the L1 embedding produce good ap-
+proximations; both are on average less than 9% away from
+the optimal measure.
+However, more importantly, the pyramid match can also
+approximate the partial matching for the unequal cardinal-
+ity case (plot on right): its matchings continue to follow
+the optimal matching’s trend since it does not penalize out-
+liers, whereas the L1 embedding fails because it requires all
+points to match to something. Our method is again on aver-
+age less than 9% away from the optimal matching’s measure
+for the unequal cardinality case, while the L1 matching has
+an average error of 400%. Space constraints do not permit
+their inclusion, but additional experiments have shown that
+this trend continues for larger dimensions.
+4.2. Object Recognition
+For our object recognition experiments we use SVM clas-
+sifiers, which are trained by specifying the matrix of ker-
+nel values between all pairs of training examples. The ker-
+nel’s similarity values determine the examples’ relative po-
+sitions in an embedded space, and quadratic programming
+is used to find the optimal separating hyperplane between
+the two classes in this space. We use the implementation
+given by [4]. When kernel matrices have dominant diag-
+onals we use the transformation suggested in [26]: a sub-
+polynomial kernel is applied to the original kernel values,
+followed by an empirical kernel mapping that embeds the
+distance measure into a feature space.
+Local affine- or scale- invariant feature descriptors ex-
+tracted from a sparse set of interest points in an image
+have been shown to be an effective, compact representa-
+tion (e.g. [13, 15]). This is a good context in which to test
+our kernel function, since such local features have no inher-
+ent ordering, and it is expected that the number of features
+will vary across examples. In the following we experiment
+with two publicly available databases and demonstrate that
+our method achieves comparable object recognition perfor-
+mance at a significantly lower computational cost than other
+state-of-the-art approaches. All run-times reported below
+include the time needed to compute both the pyramids and
+the weighted intersections.
+A performance evaluation given in [7] compares the
+methods of [12, 27, 25] in the context of an object catego-
+rization task using images from the publicly available ETH-
+80 database.3 The experiment uses eight object classes,
+with 10 unique objects and five widely separated views of
+each, for a total of 400 images. A Harris detector is used
+to find interest points in each image, and various local de-
+scriptors (SIFT [13], JET, patches) are used to compose the
+feature sets. A one-versus-all SVM classifier is trained for
+each kernel type, and performance is measured via cross-
+validation, where all five views of an object are held out at
+once. Note that no instances of a test object are ever present
+in the training set, so this is a categorization task (as op-
+posed to recognition of the same object).
+The experiments show the polynomial-time methods
+of [25] and [12] performing best, with a classification rate
+of 74% using on average 40 SIFT features per image [7].
+Using 120 interest points, the Bhattacharyya kernel [12]
+achieves 85% accuracy. However, the study also concluded
+that the cubic complexity of the method given in [12] made
+it impractical to use the desired number of features.
+We evaluated our method on this same subset of the
+ETH-80 database under the same conditions provided in [7],
+and it achieved a recognition rate of 83% using PCA-
+SIFT [11] features from all Harris-detected interest points
+(averages 153 points per image) and T = 8. Restricting
+ourselves to an average of 40 interest points yields a recog-
+nition rate of 73%. Thus our method performs comparably
+to the others at their best for this data set, but is much more
+efficient than those tested above, requiring time only linear
+in the number of features.
+In fact, the ability of a kernel to handle large numbers of
+features can be critical to its success. An interest operator
+may be tuned to select only the most “salient” features, but
+in our experiments we found that the various approaches’
+recognition rates always benefitted from having larger num-
+3http://www.vision.ethz.ch/projects/categorization/
+0 20 40 60 80 100 120
+55
+60
+65
+70
+75
+80
+85
+Object recognition on ETH−80 images
+Time to generate 400 x 400 kernel matrix (sec)
+R
+ec
+o
+g
+n
+it
+io
+n
+ a
+cc
+u
+ra
+cy
+ (
+%
+)
+Match kernel
+Pyramid match kernel
+Figure 4: Allowing the same run-time, the pyramid match ker-
+nel (with T = 1) produces better recognition rates than an ap-
+proach that computes pairwise distances between features in order
+to match them. See text for details.
+bers of features per image with which to judge similarity.
+Figure 4 depicts the run-time versus recognition accuracy
+of our method as compared to the kernel of [25] (called
+the “match” kernel), which has O(dm2) complexity. Each
+point in the figure represents one experiment; the saliency
+threshold of the Harris interest operator was adjusted to gen-
+erate varying numbers of features, thus trading off accuracy
+versus run-time. Computing a kernel matrix for the same
+data is significantly faster with the pyramid match kernel,
+and for similar run-times our method produces much better
+recognition results.
+We also tested our method with a challenging database of
+101 objects recently developed at Caltech.4 This database
+was obtained using Google Image Search, and the images
+contain significant clutter, occlusions, and intra-class ap-
+pearance variation. We used the pyramid match kernel with
+a one-versus-all SVM classifier on the latest version of the
+database (which does not contain duplicated images). We
+used the SIFT detector of [13] and 10-dimensional PCA-
+SIFT descriptors [11] to form the input feature sets, which
+ranged in size from 14 to 4,118 features, with an average
+of 454 features per image. We set T = 2. We trained our
+algorithm with 30 unsegmented images per object class; all
+detected interest point features were included in the input
+sets. This is an advantage of our approach: since it seeks
+the best correspondence with some subset of the images’
+features, it handles unsegmented, cluttered data well.
+Eight runs using randomly selected training sets yielded
+a recognition rate of 43% on the remainder of the database
+examples. Note that chance performance would be 1%.
+For this data, performing a single image matching with our
+method (computing four pyramids and two kernel values)
+on average required only 0.05 seconds.
+4http://www.vision.caltech.edu/Image Datasets/Caltech101/
+5. Conclusions
+We have developed a new fast kernel function that is suit-
+able for discriminative classification with unordered sets of
+local features. Our pyramid match kernel approximates the
+optimal partial matching by computing a weighted intersec-
+tion over multi-resolution histograms, and requires time lin-
+ear in the number of features. The kernel is robust to clut-
+ter since it does not penalize the presence of extra features,
+respects the co-occurrence statistics inherent in the input
+sets, and is provably positive-definite. We have applied our
+kernel to SVM-based object recognition tasks, and demon-
+strated recognition performance with accuracy comparable
+to current methods, but at a much lower computational cost.
+Acknowledgments
+We would like to thank John Lee for his help running exper-
+iments for this paper, and members of the MIT Vision Inter-
+face group and Mark Stephenson for reading earlier drafts.
+References
+[1] S. Belongie, J. Malik, and J. Puzicha. Shape Matching and
+Object Recognition Using Shape Contexts. IEEE Trans. on
+Pattern Analysis and Machine Intelligence, 24(24):509–522,
+April 2002.
+[2] A. Berg, T. Berg, and J. Malik. Shape Matching and Ob-
+ject Recognition using Low Distortion Correspondences. In
+Proc. IEEE Conf. on Computer Vision and Pattern Recogni-
+tion, San Diego, CA, June 2005.
+[3] S. Boughhorbel, J-P. Tarel, and F. Fleuret. Non-Mercer Ker-
+nels for SVM Object Recognition. In British Machine Vision
+Conference, London, UK, Sept 2004.
+[4] C. Chang and C. Lin. LIBSVM: a library for SVMs, 2001.
+[5] O. Chapelle, P. Haffner, and V. Vapnik. SVMs for
+Histogram-Based Image Classification. Transactions on
+Neural Networks, 10(5), Sept 1999.
+[6] T. Cormen, C. Leiserson, and R. Rivest. Intro. to Algorithms.
+MIT Press, 1990.
+[7] J. Eichhorn and O. Chapelle. Object Categorization with
+SVM: Kernels for Local Features. Technical report, MPI
+for Biological Cybernetics, 2004.
+[8] K. Grauman and T. Darrell. Fast Contour Matching Using
+Approximate Earth Mover’s Distance. In Proc. IEEE Conf.
+on Computer Vision and Pattern Recognition, Washington
+D.C., June 2004.
+[9] E. Hadjidemetriou, M. Grossberg, and S. Nayar. Mul-
+tiresolution Histograms and their Use for Recognition.
+IEEE Trans. on Pattern Analysis and Machine Intelligence,
+26(7):831–847, July 2004.
+[10] P. Indyk and N. Thaper. Fast Image Retrieval via Embed-
+dings. In 3rd Intl Wkshp on Statistical and Computational
+Theories of Vision, Nice, France, Oct 2003.
+[11] Y. Ke and R. Sukthankar. PCA-SIFT: A More Distinctive
+Representation for Local Image Descriptors. In Proc. IEEE
+Conf. on Computer Vision and Pattern Recognition, Wash-
+ington, D.C., June 2004.
+[12] R. Kondor and T. Jebara. A Kernel Between Sets of Vec-
+tors. In Proccedings of International Conference on Machine
+Learning, Washington, D.C., Aug 2003.
+[13] D. Lowe. Distinctive Image Features from Scale-Invariant
+Keypoints. International Journal of Computer Vision,
+60(2):91–110, Jan 2004.
+[14] S. Lyu. Mercer Kernels for Object Recognition with Local
+Features. In Proc. IEEE Conf. on Computer Vision and Pat-
+tern Recognition, San Diego, CA, June 2005.
+[15] K. Mikolajczyk and C. Schmid. Indexing Based on Scale
+Invariant Interest Points. In Proc. IEEE International Conf.
+on Computer Vision, Vancouver, Canada, July 2001.
+[16] P. Moreno, P. Ho, and N. Vasconcelos. A Kullback-Leibler
+Divergence Based Kernel for SVM Classification in Multi-
+media Applications. In NIPS, Vancouver, Dec 2003.
+[17] F. Odone, A. Barla, and A. Verri. Building Kernels from
+Binary Strings for Image Matching. IEEE Trans. on Image
+Processing, 14(2):169–180, Feb 2005.
+[18] D. Roobaert and M. Van Hulle. View-Based 3D Object
+Recognition with Support Vector Machines. In IEEE Intl
+Workshop on Neural Networks for Signal Processing, Madi-
+son, WI, Aug 1999.
+[19] Y. Rubner, C. Tomasi, and L. Guibas. The Earth Mover’s
+Distance as a Metric for Image Retrieval. International Jour-
+nal of Computer Vision, 40(2):99–121, 2000.
+[20] A. Shashua and T. Hazan. Algebraic Set Kernels with Ap-
+plication to Inference Over Local Image Representations. In
+NIPS, Vancouver, Canada, Dec 2005.
+[21] J. Shawe-Taylor and N. Cristianini. Kernel Methods for Pat-
+tern Analysis. Cambridge University Press, 2004.
+[22] J. Sivic and A. Zisserman. Video Google: A Text Retrieval
+Approach to Object Matching in Videos. In Proc. IEEE In-
+ternational Conf. on Computer Vision, Nice, Oct 2003.
+[23] M. Swain and D. Ballard. Color Indexing. International
+Journal of Computer Vision, 7(1):11–32, 1991.
+[24] V. Vapnik. Statistical Learning Theory. John Wiley and
+Sons, New York, 1998.
+[25] C. Wallraven, B. Caputo, and A. Graf. Recognition with Lo-
+cal Features: the Kernel Recipe. In Proc. IEEE International
+Conf. on Computer Vision, Nice, France, Oct 2003.
+[26] J. Weston, B. Scholkopf, E. Eskin, C. Leslie, and W. Noble.
+Dealing with Large Diagonals in Kernel Matrices. In Princi-
+ples of Data Mining and Knowledge Discovery, volume 243
+of SLNCS, 2002.
+[27] L. Wolf and A. Shashua. Learning Over Sets Using Kernel
+Principal Angles. Journal of Machine Learning Research,
+4:913–931, Dec 2003.
+[28] H. Zhang and J. Malik. Learning a Discriminative Classi-
+fier Using Shape Context Distances. In Proc. IEEE Conf.
+on Computer Vision and Pattern Recognition, Madison, WI,
+June 2003.
+

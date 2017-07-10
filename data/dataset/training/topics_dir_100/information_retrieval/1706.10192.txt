@@ -1,0 +1,784 @@
+RE-PACRR: A Context and Density-Aware
+Neural Information Retrieval Model
+Kai Hui
+Max Planck Institute for Informatics
+Saarbrücken Graduate School of Computer Science
+Saarbrücken, Germany
+khui@mpi-inf.mpg.de
+Andrew Yates
+Max Planck Institute for Informatics
+Saarbrücken, Germany
+ayates@mpi-inf.mpg.de
+Klaus Berberich
+Max Planck Institute for Informatics
+htw saar
+Saarbrücken, Germany
+kberberi@mpi-inf.mpg.de
+Gerard de Melo
+Rutgers University
+New Brunswick, New Jersey
+gdm@demelo.org
+ABSTRACT
+Ad-hoc retrieval models can benet from considering dierent
+paerns in the interactions between a query and a document, eec-
+tively assessing the relevance of a document for a given user query.
+Factors to be considered in this interaction include (i) the matching
+of unigrams and ngrams, (ii) the proximity of the matched query
+terms, (iii) their position in the document, and (iv) how the dierent
+relevance signals are combined over dierent query terms. While
+previous work has successfully modeled some of these factors, not
+all aspects have been fully explored. In this work, we close this
+gap by proposing dierent neural components and incorporating
+them into a single architecture, leading to a novel neural IR model
+called RE-PACRR. Extensive comparisons with established models
+on Trec Web Track data conrm that the proposed model yields
+promising search results.
+CCS CONCEPTS
+•Information systems →Retrieval models and ranking;Web
+searching and information discovery;
+1 INTRODUCTION
+Deep learning has enjoyed enormous success in the last few years,
+completely transforming elds such as natural language processing
+and computer vision. While state-of-the-art neural models for ad
+hoc information retrieval (IR) have been making signicant ad-
+vances and now perform quite well, there have been decades of
+prior research on information retrieval, and many of the resulting
+domain insights are yet to be incorporated into the neural IR para-
+digm. Deep learning allows us to learn powerful models that can
+capture relevance matching at ne-grained levels. For example,
+when encoding local matching, the lters in a convolutional neural
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for prot or commercial advantage and that copies bear this notice and the full citation
+on the rst page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+Neu-IR 2017, Tokyo
+© 2017 Copyright held by the owner/author(s). 123-4567-24-567/08/06. . .$15.00
+DOI: 10.475/123 4
+network (CNN) enable a model to learn dierent paerns of match-
+ing beyond exact matches as in [9, 14]. e state-of-the-art neural
+models have demonstrated the utility of such capabilities. We argue
+that, however, there is still room to further exploit such insights and
+knowledge of the task in order to develop more powerful neural
+models.
+To close this gap, we highlight several promising aspects based
+on past research within the IR community, and propose several deep
+neural components to address them accordingly. ese components
+are integrated to form a novel neural model called RE-PACRR, short
+for Relevance Enhanced PACRR, which builds on PACRR [9], a
+state-of-the-art neural model. However, the insights we identify
+and components we propose are not specic to PACRR, and we
+expect them to be similarly relevant to other state-of-the-art neural
+models, such as DUET [11], DRMM [5], and MatchPyramid [14].
+An overview of RE-PACRR is given in Figure 1, incorporating the
+following domain insights.
+Disambiguation refers to distinguishing dierent senses of
+the same term. For retrieval models such as BM25 that rely on
+exact term matching, some of the matches may actually stem from
+dierent senses of the same term in a query and a document. Such
+sense mismatches are incorrectly considered as relevance matches.
+For example, given the query “Jaguar SUV price”, the term “Jaguar”
+refers to a car brand, but the term “jaguar” could also refer to an
+animal, as in the following sentence.
+In a safari wild park near London, an aack hap-
+pened when a jaguar was irritated by a horn from
+a tourist SUV, which, fortunately, caused no harm.
+erefore, when evaluating the relevance between this sentence-
+query pair, the exact term match of “jaguar” should not be counted
+as a relevance match. Models such as DUET (in its distributed
+component) may be able to account for this by encoding a query
+and a document into a dense vector space. Most other neural IR
+models do not explicitly account for disambiguation. In this work, a
+context checking module is proposed and plugged into the PACRR
+model, allowing the model to consider sense matching as well as
+term matching.
+Proximity takes into account information about where query
+terms occur in a document and how they depend on each other
+– as exploited by retrieval models aware of term proximity [17].
+ar
+X
+iv
+:1
+70
+6.
+10
+19
+2v
+1 
+ [
+cs
+.I
+R
+] 
+ 3
+0 
+Ju
+n 
+20
+17
+Neu-IR 2017, August 2017, Tokyo K. Hui et al.
+𝑠𝑖𝑚|%|×|'|
+𝐶𝑁𝑁*×*⋯𝐶𝑁𝑁,-×,-,𝐶𝑁𝑁,/×,/
+𝐶,/×,0×12
+* ⋯𝐶,/×,0×12
+,- ,𝐶,/×,0×12
+,/
+𝑚𝑎𝑥	𝑝𝑜𝑜𝑙𝑖𝑛𝑔	𝑓𝑖𝑙𝑡𝑒𝑟𝑠 𝐶𝑜𝑛𝑐𝑎𝑡𝑒𝑛𝑎𝑡𝑖𝑜𝑛	𝑜𝑛	𝑛@	𝑜𝑓	𝑛A-𝑚𝑎𝑥	𝑝𝑜𝑜𝑙𝑖𝑛𝑔
+	𝑃,/×,-×*1C1D
+𝑠𝑖𝑚,/×,0
+𝐶,/×,0×E
+E
+𝐶,/×,0×E
+E ⋯𝐶,/×,0×E
+,- ,𝐶,/×,0×E
+,/
+𝑠𝑜𝑓𝑡𝑚𝑎𝑥(𝐼𝐷𝐹,/×E)
+𝑅𝑎𝑛𝑑𝑜𝑚	𝑃𝑒𝑟𝑚𝑢𝑡𝑎𝑡𝑖𝑜𝑛 + 𝐷𝑒𝑛𝑠𝑒	𝐿𝑎𝑦𝑒𝑟𝑠
+𝑅𝑒𝑙(𝑞, 𝑑)
+𝑐𝑜𝑛𝑡𝑒𝑥𝑡,0
+𝑞𝑢𝑒𝑟𝑦𝑠𝑖𝑚|'|
+	𝑃,/×,-×(*1C1DRE)
+Figure 1: e pipeline of RE-PACRR.e inputs include twomatrices, namely, sim |q |× |d | and querysim |d | , recording the similar-
+ity of dierent terms in a document relative to each query term and thewhole query respectively. All these similaritymatrices
+are truncated/zero-padded to the dimensions governed by lq and ld . Several 2D convolutional kernels are rst applied to the
+similarity matrices, one for each lд ∈ [2, lд], and an extra one for query proximity with kernel size lq × lq . Next, max pooling is
+applied to pool out the lters, ending up with lд + 1 matrices, namely, C1 · · ·Clд ,Clq . Following this, ns -max pooling captures
+the strongest ns signals on eachC, at all nc positions from cpos. In the meantime, the context similarity corresponding to each
+term in top-ns from contextld is also appended, leading to Plq×lд×(2nsnc ). Finally, the query terms’ normalized IDFs are appended,
+and a feedforward network is applied, aer permuting the rows in Plq×lд×(2nsnc+1), getting a query-document relevance score
+rel(q,d). In this plot, the situation when ld = 8, lq = 3, lд = 3, nc = 2, ns = 2 and cpos = [50%, 100%] is displayed.
+Term proximity emphasizes the frequent co-occurrence of dierent
+query terms within a small text window, which are not necessarily
+successive. Intuitively, a small text window including multiple
+dierent query terms is more likely to be relevant in the sense
+that it covers more relevant information to the query. For example,
+given the query “Jaguar SUV price”, a text window including all
+three terms is more likely to be relevant, since both “Jaguar SUV”
+and “price” are included. To consider proximity, a model needs
+to be capable of capturing local matching information beyond a
+single query term. In this regard, it has been partially considered
+in MatchPyramid [14] and PACRR [9], but these models do not
+consider proximity of all query terms at once. In this work, we
+further investigate a new building block to model proximity by
+including a suciently large kernel to cover all query terms, which
+makes it possible to fully model proximity.
+ery coverage aims at comprehensively catering to all rele-
+vant concepts in the query, avoiding to bias the results towards
+only individual concepts occurring in the query. Take, for instance,
+a verbose query such as the following [6]:
+Provide information on all kinds of material interna-
+tional support provided to either side in the Spanish
+Civil War.
+Both “Spanish” and “civil war” should likely be mentioned in this
+case. More generally, a relevant document to a query should, to
+some degree, cover all of the most salient concepts in it. Exist-
+ing neural IR models satisfy query coverage when combining the
+matching signals from dierent query terms. We argue that such a
+combination should be position-independent. Put dierently, the
+way to combine the relevance signals and the weights allocated to
+dierent query terms should only depend on the inherent proper-
+ties of the query terms and their relevance signals. Such matching
+signals already cover both unigrams and ngrams (e.g., in PACRR the
+matching signal for the term “civil” includes both the unigram signal
+and bigram matching signal for “civil war”), so the relative positions
+of these matching signals need not be considered when the signals
+are combined. is should particularly be true when the inputs are
+zero-padded in the tail of a query, where a model is not supposed to
+learn combination weights based on the occurrences of zeros in the
+tail positions. In this regard, we argue that position-independence
+is not fully implemented in established model architectures. To
+address this, we introduce a random permutation phase before
+combining signals, removing the position-dependent factors and
+thereby improving the generalization ability of the model.
+Cascade reading model. In addition to the amount of relevant in-
+formation in a document, a model should also consider the density
+of the relevant information. An extreme example is the comparison
+between one relevant document and a pseudo-document composed
+of several concatenated non-relevant documents with the same rel-
+evant document appended at the end. Although the same amount
+of relevance matches are included in the original relevant document
+and the pseudo-document, one would expect that the original docu-
+ment is preferred, due to the relevant information being presented
+earlier and overall more densely. Beyond this, according to the
+cascade model from [2], the gains of the relevance in a document
+should be degraded when enough relevant information has been
+observed earlier, since a user may already stop reading aer collect-
+ing enough relevant information from the current document. Such
+signals might be learned implicitly by a 1 × doclen kernel in the
+local matching of DUET. However, to the best of our knowledge,
+it has not been explicitly modeled in established neural IR models.
+To address this, we propose a cascade component to model the
+RE-PACRR Neu-IR 2017, August 2017, Tokyo
+position of the relevant signals in addition to the total amount of
+relevant signals.
+Contributions. In this work, inspired by these insights, a novel
+model, named RE-PACRR, is proposed by incorporating all of the
+aforementioned building blocks: the context checking module, the
+term proximity kernel, the signal combination regularizer, and the
+cascade component. e proposed model is examined through ex-
+tensive experiments based on relevance judgments from Trec, and
+compared with multiple state-of-the-art models including Match-
+Pyramid, DRMM, the local model in DUET, and the PACRR model.
+We nd that RE-PACRR compares favorably against the baseline
+models. Remarkably, when re-ranking the search results from a
+naı̈ve ranker, namely a query-likelihood ranking model, the re-
+ranked runs are ranked top-1 under both ERR20 and nDCG20 in
+the Web Track 2012–14, improving both evaluation measures by
+100% on average.
+Organization. e rest of this paper unfolds as follows. Section 2
+recaps the basic neural-IR model PACRR, and thereaer Section 3
+describes the proposed building components in detail. e setup
+and results of our extensive experimental evaluation can be found in
+Section 4. We discuss related work in Section 5, before concluding
+in Section 6.
+2 BACKGROUND
+In this section, we rst introduce the basic PACRR model, following
+the notation from [9]. In general, PACRR takes a similarity matrix
+between a query q and a document d as input, and the output of
+the model is a scalar, namely, rel(d,q), indicating the relevance of
+document d to query q. PACRR aempts to model query-document
+interactions based on these similarity matrices. At training time, the
+relevance scores for one relevant and one non-relevant document,
+denoted as d+ and d−, respectively, are fed into a max-margin loss
+as in Eq. 1.
+L(q,d+,d−;Θ) = max(0, 1 − rel(q,d+) + rel(q,d−)) (1)
+At inference time, given a query, documents are ranked based on
+their rel(d,q). In the following, PACRR is introduced component-
+by-component.
+(1) Input: the similarity matrix simlq×ld , where both lq and ld
+are hyper-parameters unifying the dimensions of the input
+similarity matrices. lq is set to the longest query length,
+and the maximum document length hyper-parameter ld
+is tuned on the validation dataset. Given the seings for
+both lq and ld , a similarity matrix between a query and
+a document is truncated if the document is too long or
+zero-padded if it is too short.
+(2) CNN kernels and max-pooling layers for the lters:
+multiple CNN kernels with lf lters are introduced to cap-
+ture the local matching information, like n-gram matching,
+for dierent text window lengths, namely 2, 3, · · · , lд . e
+hyper-parameters lд and lf govern the longest text window
+under consideration and the number of lters, respectively.
+ese CNN kernels are followed by a max-pooling layer
+to retain the strongest signals per kernel, leading to lд
+matrices, denoted as
+C1lq×ld×1 · · ·C
+lд
+lq×ld×1
+,
+(3) k-max pooling: subsequently, the matching signals in
+C1, · · · ,Clд from these kernels are further pooled with
+ns -max pooling layers, only keeping the top-ns strongest
+signals over individual query terms, ending up with
+P1lq×ns , · · · , P
+lд
+lq×ns ,
+which are further concatenated for individual query terms,
+resulting in a matrix Plq×(lдns );
+(4) combinations of signals from dierent query terms:
+the signals in Plq×(lдns ), together with the inverse docu-
+ment frequency for individual query terms, are fed into
+an LSTM layer to generate the nal query-document rele-
+vance score rel(d,q).
+Tweaks. Before moving on, we make two changes to the orig-
+inal PACRR model to cater to our study. is revised model is
+employed and simply denoted as PACRR in the following sections.
+First, according to our pilot experiments, the performance of the
+model does not change signicantly when replacing the LSTM
+layer with a stack of dense layers, which have been demonstrated
+to be able to simulate an arbitrary function [4]. Such dense layers
+can easily learn in parallel, leading to faster training [4], whereas
+back-propagation through an LSTM layer is much more expensive
+due to its sequential structures. From Section 4, it can be seen
+that eciency is very important for this study, due to the huge
+amount of model variants to be trained and the limited availability
+of hardware at our disposal. Finally, another tweak is to switch the
+max-margin loss in [9] to a cross-entropy loss as in Eq. 2, according
+to [3], where it has been demonstrated that a cross-entropy loss
+may lead to beer performance.
+L(q,d+,d−;Θ) = −log exp(rel(q,d
++))
+exp(rel(q,d+)) + exp(rel(q,d−)) (2)
+3 METHOD
+In this section, we describe the novel components in the RE-PACRR
+model. e architecture of this model is summarized in Figure 1.
+Context checkingmodule: disambiguation of the relevance
+matching. Beyond the simlq×ld from PACRR, we introduce an-
+other input matrix denoted as querysim |d | , recording the similarity
+for each term relative to the query. In particular, the vector of
+a query is computed by averaging the word vectors of all query
+terms, and cosine similarity is computed between each term vector
+in the document relative to this query vector. As in [9], we use
+pre-trained word2vec1 embeddings to compute term similarities
+due to its availability. In the future, one may desire to replace this
+with other embeddings such as the dual embedding from [12] and
+the relevance-based embedding from [18]. ereaer, given a term
+at position i , namely, querysim[i], the similarity for its context is
+computed by averaging the similarity in its surrounding windows,
+resulting in contextld aer truncating or zero-padding in accor-
+dance with ld . us, for a term at position i in a document, its
+1hps://code.google.com/archive/p/word2vec/
+Neu-IR 2017, August 2017, Tokyo K. Hui et al.
+context similarity context[i] is computed as
+context[i] =
+∑
+j ∈[i−w,i+w ] querysim[i]
+2 ∗w + 1 .
+In the model, to avoid relevance matching due to ambiguity
+as in the “jaguar” example from Section 1, intuitively, only when
+both the term and its context are highly similar with a query term
+(or n-gram in the query) do matching signals represent a correct
+relevance match. us, when combining the top-ns signals from
+individual query terms, the corresponding similarities for these
+top-ns signals from contextld are also concatenated, making the
+matrices Plq×(lдns ) become Plq×(2lдns ). is enables the aggregat-
+ing model, namely, a feed-forward network, to take the ambiguity
+into account when determining the ultimate score. For example, in
+the “jaguar” example in Section 1, in the context of “jaguar” there
+are “safari” and “wild park”, which have low similarity with query
+terms such as “SUV” and “price”, eectively making the model un-
+derstand that the two “jaguar” occurrences in the query and in the
+sentence are referring to dierent senses.
+Model proximity with a larger CNN kernel. As discussed
+in Section 1, we assume that proximity could be modeled over the
+entire query, instead of over multiple small text pieces in the query,
+as in MatchPyramid and PACRR. us we propose to implement
+an extra kernel with size lq × lq , adding it along with other CNN
+kernels. is leads to an extra matrix aer the CNN layer, namely
+C
+lq
+lq×ld×lf
+, and ultimately an extra matrix aer the max-pooling
+of lters, namely, Clqlq×ld×1. ereaer, such proximity signals are
+passed on to the follow-up pipeline in the model, resulting in a
+matrix Plq×((lд+1)ns ) before the combination.
+Cascade k-max: simulating the cascade reading approach.
+As discussed in Section 1, not only the strength but also the osets of
+relevance signals maer. We propose to encode such cascade factors
+by conducting k-max pooling at multiple osets in a document,
+instead of pooling only on the entire document. For example, one
+could conduct multiple k-max pooling at 25%, 50%, 75%, and 100% of
+a document, ending up with Plq×(4lдns ). is corresponds to when
+a user sis through a document and evaluates its relevance aer
+nishing the rst, second, third, or fourth quarter of the document.
+e list of osets at which cascade k-max pooling is conducted is
+governed by an array cpos , e.g., cpos = [25%, 50%, 75%, 100%] in the
+above example, and the length of this array is denoted as nc , which
+are both hyper-parameters.
+Randomlypermute query terms before feed-forward layer:
+improving generalization. As mentioned in Section 1, the com-
+bination of relevance signals among dierent queries is position-
+independent. In light of this, we propose to randomly permute
+rows in Plq×(lдns ) before aggregating them. Note that each row
+contains signals for multiple n-gram lengths; permuting the rows
+does not prevent the model from recognizing n-grams. We argue
+that, taking advantage of this independence, the permutation can
+eectively improve the generalization ability of the model, making
+the computation of the relevance scores depend solely on the im-
+portance of a query term (idf ) and the relevance signals aggregated
+on it. is should be particularly helpful when training on short
+queries (|q | < lq ), where padded zeros are in the tail of simlq×ld .
+Without permutation, a model might remember that the relevance
+signals at the tail of a query, e.g., the several nal rows in simlq×ld ,
+contribute very lile and are mostly zero, leading to it mistakenly
+degrading the contribution from terms at tail positions when infer-
+ring relevance scores for longer queries.
+4 EVALUATION
+In this section, we empirically compare the proposed RE-PACRR
+with multiple state-of-the-art neural IR models using manual rele-
+vance judgments from six years of the Trec Web Track. Akin to [9],
+the comparison is based on three benchmarks, namely, re-ranking
+search results from a simple initial ranker, coined RerankSimple,
+re-ranking all runs from the Trec Web Track, coined RerankALL,
+and further examining the classication accuracy of the neural IR
+models in determining the order of document pairs, coined PairAc-
+curacy. We compare our model with multiple state-of-the-art
+neural IR models including DRMM [5], DUET [11], MatchPyra-
+mid [14], and the recently proposed PACRR [9]. As our focus is
+on the deep relevance matching model, we only compare against
+DUET’s local model, denoted as DUETL. Additionally, the Trec
+benchmarks contain much less data than that used to train DUET’s
+distributed model in [11].
+4.1 Experimental Setup
+We rely on the 2009–2014 Trec Web Track ad-hoc task bench-
+marks2, which are based on the ClueWeb09 and ClueWeb12
+datasets as document collections. In total, there are 300 queries and
+more than 100k judgments (qrels). ree years (2012–14) of query-
+likelihood baselines (QL) (Terrier [13] version without ltering
+spam) provided by Trec3, and the search results from runs sub-
+mied by participants from each year are both employed as initial
+rankings in the RerankSimple and RerankALL benchmarks, re-
+spectively. In total, there are 71 (2009), 55 (2010), 62 (2011), 48 (2012),
+50 (2013), and 27 (2014) runs. ERR@20 [1] and nDCG@20 [10] are
+employed as evaluation measures, and both are computed with the
+script from Trec4.
+Training. Models are trained and tested in a round-robin manner,
+using individual years as training, validation and test data. Speci-
+cally, the available judgments are considered in accordance with
+the individual years of the Web Track, with 50 queries per year.
+Proceeding in a round-robin manner, we report test results on one
+year by using combinations of every four years and the le-out
+year in the remaining years for training and validation, respectively.
+Model parameters and the number of training epochs are chosen
+by maximizing the ERR20 on the validation set for each training
+validation combination separately. ereaer, the selected model
+is used to make predictions on the test data. Hence, for each test
+year, there are ve dierent predictions each from a training and
+validation combination. Akin to the procedure in cross-validation,
+we report the average of these ve test results as the ultimate result
+for individual test years, and conduct a Student’s t-test over them
+to determine whether there is a statistically signicant dierence
+between dierent methods. For example, a signicant dierence
+between two evaluated methods on a particular test year is claimed
+2hp://trec.nist.gov/tracks.html
+3hps://github.com/trec-web/trec-web-2014
+4hp://trec.nist.gov/data/web/12/gdeval.pl
+RE-PACRR Neu-IR 2017, August 2017, Tokyo
+if there exists a signicant dierence between the two vectors with
+ve scores for individual methods. We argue that, this way, the
+eects of the choice of training and validation data are minimized.
+is was motivated by an observation that the closeness of the
+subsets for training and for validation can adversely inuence the
+model selection. For example, when using a validation set contain-
+ing queries from the same Trec years as in the training set, a model
+could sometimes over-t both the training and validation sets at
+the same time, leading to poor results on the test set.
+Choice of the hyper-parameters. For the new components in
+RE-PACRR, we x the size of the context window as 4 on both sides,
+leading to a context vector computed by averaging 9, namely, 4+4+
+1, surrounding similarity values in querysim. For the cascade com-
+ponent, we conduct k-max pooling with cpos = [25%, 50%, 75%, 100%].
+Apart from the two modications mentioned in Section 2, we xed
+the model choices for PACRR, focusing on the proposed novel model
+variants. In particular, the PACRR-rstk variant is employed, xing
+the unied dimensions ld = 800 and lq = 16, the k-max pooling size
+ns = 3, the maximum n-gram size lд = 3, and the number of lters
+used in convolutional layers nf = 32. Beyond that, we x the batch
+size to 16 and we train individual models to at most 150 epochs.
+DRMM (DRMMLCH×IDF ), DUETL, and MatchPyramid [14] are
+trained similarly. e size of the dense layer for DRMM is xed
+to 5 following the seing in [5]; the document dimension for both
+DUETL and MatchPyramid is also set to 800. All these methods are
+trained with a cross-entropy loss as summarized in Eq. 2.
+4.2 Results for RE-PACRR
+RerankSimple. We rst examine how well the proposed model
+performs when re-ranking the search results from a basic initial
+ranker, the query-likelihood model. e ultimate quality of the
+re-ranked search results depends on both the strength of the initial
+ranker and the quality of the re-ranker. e query-likelihood model,
+as one of the most widely used retrieval models, is used due to its
+eciency and practical availability, given that it is included in most
+retrieval toolkits as a default model. e results are summarized in
+Table 1. e absolute scores in terms of ERR@20 and nDCG@20 are
+reported, together with the improvements relative to the measures
+on search results from the query-likelihood model. e ranks of the
+re-ranked runs are also reported when sorting the re-ranked search
+results together with other competing runs from the same year
+according to ERR20 or nDCG20. e characters in brackets indi-
+cate a signicant dierence compared with other methods, marked
+using uppercase or lowercase characters, namely P/p for PACRR,
+D/d for DRMM, L/l for DUETL and M/m for MatchPyramid, repre-
+senting the two-tailed signicance at 95% or 90% condence levels,
+respectively.
+It can be seen that, by simply re-ranking the search results from
+the query-likelihood method, the model can already achieve the
+best runs in all three years. Beyond that, compared with the query-
+likelihood results, the average improvement in terms of ERR@20 is
+more than 99% and the average improvement in terms of nDCG@20
+is 104%.
+RerankALL. Given that the search results from QL only ac-
+count for a small subset of all judged documents and dierent re-
+trieval models return dierent subsets, we evaluate our re-ranker’s
+performance when re-ranking all submied runs from the Trec
+Web Track 2009–14. is evaluation focuses on two aspects: how
+many dierent runs we can improve upon and by how much we
+improve. e former aspect is about the adaptability of a neural IR
+model, investigating whether it can make improvements based on
+dierent kinds of retrieval models, while the laer aspect focuses on
+the magnitude of improvements. Tables 2 summarizes the percent-
+ages of systems that see improvements based on either ERR@20
+and nDCG@20 out of the total number of systems in each year. In
+Table 3, we further report the average percentage of improvements.
+Table 2 demonstrates that on average more than 95% of runs
+are improved by the RE-PACRR in terms of both measures. When
+compared with other models, RE-PACRR signicantly outperforms
+all baseline models on ve years out of six in terms of ERR@20. It
+is only signicantly beer than the results from PACRR in 2013 and
+14 when measured with nDCG@20, but outperforms the other base-
+lines in all six years. Note that, compared with nDCG@20, ERR@20
+emphasizes the quality of the top-ranked documents and heavily
+penalizes relevant documents that are ranked lower by a model
+when enough relevant documents have been observed earlier [1].
+is means that the improvement of the ERR for a model mainly
+comes from improvements on queries for which search results at
+the top are not good enough from an initial ranker, and hardly from
+the queries where an initial ranker already performs well and a
+re-ranker makes the search results even beer by adjusting the
+positions of documents in lower positions. is could explain the
+dierences between results in terms of ERR@20 and nDCG@20,
+indicating that the two measures actually reect dierent types of
+improvements. Furthermore, in Table 3, the average improvements
+on dierent runs are summarized, and on average the initial runs
+get improved by 54% and 67% of ERR@20 and nDCG@20, respec-
+tively. Under both measures, RE-PACRR performs signicantly
+beer than all baselines in ve years out of six years.
+PairAccuracy. Ideally, a re-ranking model should make cor-
+rect decisions when ranking all documents. erefore, we further
+rely on a pairwise ranking task to compare dierent models in this
+regard. In particular, given a query and a set of documents, dierent
+models assign a score to each document according to their inferred
+relevance relative to the given query. ereaer, all pairs of docu-
+ments are examined and the pairs that are ranked in concordance
+with the ground-truth judgments from Trec are deemed correct,
+based on which an aggregated accuracy is reported on all such
+document pairs in dierent years. For example, given query q and
+two documents d1 and d2, along with their ground-truth judgments
+label(d1) and label(d2), a re-ranking model provides their relevance
+scores as rel(q,d1) and rel(q,d2). e re-ranking model is correct
+when it predicts these two documents in the same order as in the
+ranking from the ground-truth label, e.g., rel(q,d1) > rel(q,d2) and
+label(d1) > label(d2). e relevance judgments in the Trec Web
+Track include up to six relevance levels: junk pages (Junk), non-
+relevant (NRel), relevant (Rel), highly relevant (HRel), key pages
+(Key), and navigational pages (Nav), corresponding to six graded
+levels, i.e., -2, 0, 1, 2, 3, 4. As suggested in [9], a navigational doc-
+ument is dierent from other relevant documents in terms of the
+user intent it satises, where links to other relevant documents for
+the same query are provided. us, documents labeled with Nav
+are not considered in this task. Moreover, documents labeled as
+Neu-IR 2017, August 2017, Tokyo K. Hui et al.
+Table 1: Err@20 and nDCG@20 on Trec Web Track 2012–14 when re-ranking search results from QL. e comparisons are
+conducted between RE-PACRR and PACRR (P/p), DRMM (D/d), DUETL (L/l), as well asMatchPyramid (M/m). e upper/lower-
+case characters in brackets indicate a signicant dierence under two-tailed paired Student’s t-tests at 95% or 90% condence
+levels relative to the corresponding approach. In addition, the relative improvements (%) and ranks among all runs within the
+respective years according to Err@20 and nDCG@20 are also reported aer the absolute scores.
+Measures Year RE-PACRR PACRR MatchPyramid DUETL DRMM
+ERR@20
+wt12 0.390 (p↑D↑L↑M↑) 121% 1 0.347 (d↑L↑M↑) 96% 1 0.309 (P↓L↑) 74% 5 0.218 (P↓D↓M↓) 23% 18 0.314 (p↓L↑) 78% 4
+wt13 0.190 (p↑D↑L↑M↑) 89% 1 0.175 (D↑L↑M↑) 74% 3 0.135 (P↓D↓) 34% 15 0.137 (P↓D↓) 36% 14 0.155 (P↓L↑M↑) 54% 7
+wt14 0.246 (P↑D↑L↑M↑) 88% 1 0.223 (D↑L↑M↑) 70% 1 0.183 (P↓) 40% 12 0.174 (P↓D↓) 33% 16 0.195 (P↓L↑) 49% 8
+nDCG@20
+wt12 0.281 (P↑D↑L↑M↑) 163% 1 0.248 (D↑L↑M↑) 133% 2 0.212 (P↓L↑) 99% 5 0.155 (P↓D↓M↓) 45% 18 0.205 (P↓L↑) 93% 6
+wt13 0.345 (p↑D↑L↑M↑) 82% 1 0.324 (D↑L↑M↑) 70% 2 0.263 (P↓L↑) 39% 6 0.239 (P↓D↓M↓) 26% 15 0.269 (P↓L↑) 41% 6
+wt14 0.385 (P↑D↑L↑M↑) 67% 1 0.352 (D↑L↑M↑) 52% 1 0.297 (P↓l↑) 29% 7 0.275 (P↓D↓m↓) 19% 11 0.302 (P↓L↑) 31% 5
+Table 2: e percentage of runs that show improvements in terms of a measure when re-ranking all runs from the TrecWeb
+Track 2009–14 based on Err@20 and nDCG@20. e comparisons are conducted in between RE-PACRR and PACRR (P/p),
+DRMM (D/d), DUETL (L/l), as well as MatchPyramid (M/m). e upper/lower-case characters in brackets indicate a signicant
+dierence under two-tailed paired Student’s t-tests at 95% or 90% condence levels relative to the corresponding approach.
+Measures Year RE-PACRR PACRR MatchPyramid DUETL DRMM
+ERR@20
+wt09 91% (D↑L↑) 92% (D↑L↑m↑) 86% (p↓D↑l↑) 77% (P↓m↓) 72% (P↓M↓)
+wt10 98% (P↑D↑L↑M↑) 95% (D↑L↑) 95% (D↑L↑) 69% (P↓D↓M↓) 91% (P↓L↑M↓)
+wt11 98% (P↑D↑L↑M↑) 69% (D↑L↑M↑) 43% (P↓L↑) 26% (P↓D↓M↓) 49% (P↓L↑)
+wt12 98% (P↑d↑L↑M↑) 92% (L↑) 93% (L↑) 68% (P↓D↓M↓) 95% (L↑)
+wt13 94% (P↑D↑L↑M↑) 85% (L↑M↑) 64% (P↓d↓) 61% (P↓D↓) 83% (L↑m↑)
+wt14 96% (P↑D↑L↑M↑) 84% (L↑M↑) 58% (P↓) 52% (P↓) 68%
+nDCG@20
+wt09 94% (D↑L↑M↑) 96% (D↑L↑M↑) 82% (P↓D↑L↑) 71% (P↓M↓) 68% (P↓M↓)
+wt10 98% (D↑L↑M↑) 98% (D↑L↑m↑) 95% (p↓L↑) 72% (P↓D↓M↓) 94% (P↓L↑)
+wt11 98% (D↑L↑M↑) 94% (D↑L↑M↑) 49% (P↓L↑) 31% (P↓D↓M↓) 56% (P↓L↑)
+wt12 98% (D↑L↑M↑) 97% (D↑L↑M↑) 90% (P↓L↑) 68% (P↓D↓M↓) 92% (P↓L↑)
+wt13 91% (P↑D↑L↑M↑) 88% (D↑L↑M↑) 80% (P↓L↑) 65% (P↓D↓M↓) 80% (P↓L↑)
+wt14 97% (P↑D↑L↑M↑) 90% (D↑L↑M↑) 69% (P↓l↑) 59% (P↓D↓m↓) 74% (P↓L↑)
+Junk and NRel, and documents labeled as HRel and Key are merged
+into NRel and HRel, respectively, due to the limited number of
+documents labeled as Junk and Key. en, all pairs of documents
+with dierent labels are generated as test pairs. In total, these three
+label pairs account for 95% of all document pairs according to the
+column named “volume” in Table 4.
+e results show that signicant improvements relative to all
+baselines are observed in three out of all six years among the three
+label pairs. Compared with DUETL, MatchPyramid, and DRMM,
+RE-PACRR performs beer in all six years for labeling pairs between
+HRel and NRel, as well as between Rel and NRel. As for document
+pairs that are labeled as HRel and Rel, the RE-PACRR performs
+relatively close to the baselines. In terms of absolute accuracy, on
+average, the RE-PACRR yields correct predictions on 79.1%, 73.5%,
+and 59.1% of document pairs for label pairs HRel–NRel, Rel–NRel,
+and HRel–Rel, respectively, where the decreasing accuracy is due
+to the increasing diculty on these document pairs.
+5 RELATEDWORK
+Ad-hoc retrieval systems aim at ranking documents with respect
+to their relevance relative to a given query. Recently, the promise
+of deep learning as a potential driver for new advances in retrieval
+quality has aracted signicant aention. Neural IR approaches
+can be categorized as semantic matching models and relevance
+matching models.
+e former follows the embedding approach adopted in many
+natural language processing tasks, focusing on comparing the mean-
+ing of a query and a document by converting both into a low-
+dimensional semantic space. For example, ARC-I and ARC-II [15]
+are two such models that the authors apply to the the tasks of
+sentence completion, identifying the response to a microblog post,
+and performing paraphrase detection. Beyond that, Huang et al. [8]
+propose Deep Structured Semantic Models (DSSM), which learn
+low-dimensional representations of queries and documents in a
+RE-PACRR Neu-IR 2017, August 2017, Tokyo
+Table 3: e average dierences of the measure score for individual runs when re-ranking all runs from the TrecWeb Track
+2009–14 based on ERR@20 and nDCG@20. e comparisons are conducted between RE-PACRR and PACRR (P/p), DRMM
+(D/d), DUETL (L/l), as well as MatchPyramid (M/m). e upper/lower-case characters the brackets indicate a signicant dier-
+ence under two-tailed paired Student’s t-tests at 95% or 90% condence levels relative to the corresponding approach.
+Measures Year RE-PACRR PACRR MatchPyramid DUETL DRMM
+ERR@20
+wt09 43% (D↑L↑M↑) 40% (D↑L↑M↑) 31% (P↓D↑L↑) 22% (P↓M↓) 20% (P↓M↓)
+wt10 98% (P↑D↑L↑M↑) 74% (D↑L↑M↑) 54% (P↓d↑L↑) 23% (P↓M↓) 44% (P↓m↓)
+wt11 33% (P↑D↑L↑M↑) 11% (D↑L↑M↑) -4% (P↓) -11% (P↓D↓) -0% (P↓L↑)
+wt12 89% (P↑D↑L↑) 66% (L↑) 68% (L↑) 22% (P↓D↓M↓) 70% (L↑)
+wt13 36% (P↑D↑L↑M↑) 27% (L↑M↑) 9% (P↓D↓) 8% (P↓D↓) 20% (L↑M↑)
+wt14 29% (P↑D↑L↑M↑) 16% (d↑L↑M↑) 5% (P↓) 2% (P↓) 8% (p↓)
+nDCG@20
+wt09 36% (D↑L↑M↑) 35% (D↑L↑M↑) 20% (P↓D↑) 14% (P↓) 12% (P↓M↓)
+wt10 125% (P↑D↑L↑M↑) 96% (D↑L↑M↑) 66% (P↓L↑) 31% (P↓M↓) 58% (P↓)
+wt11 43% (P↑D↑L↑M↑) 26% (D↑L↑M↑) 0% (P↓d↓l↑) -11% (P↓D↓m↓) 7% (P↓L↑m↑)
+wt12 122% (P↑D↑L↑M↑) 89% (D↑L↑m↑) 65% (p↓L↑) 21% (P↓D↓M↓) 69% (P↓L↑)
+wt13 43% (P↑D↑L↑M↑) 31% (D↑L↑M↑) 16% (P↓L↑) 9% (P↓d↓M↓) 15% (P↓l↑)
+wt14 31% (P↑D↑L↑M↑) 21% (D↑L↑M↑) 12% (P↓l↑) 6% (P↓D↓m↓) 11% (P↓L↑)
+Table 4: Comparison among tested methods in terms of accuracy in ranking document pairs with dierent label pairs. e
+columns “volume” and “# queries” record the occurrences of each label combination out of the total pairs, and the number of
+queries that include a particular label combination among all six years, respectively. e comparisons are conducted between
+RE-PACRR and PACRR (P/p), DRMM (D/d), DUETL (L/l), as well as MatchPyramid (M/m). e upper/lower-case characters in
+brackets indicate a signicant dierence under two-tailed paired Student’s t-tests at 95% or 90% condence levels relative to
+the corresponding approaches.
+Label Pair volume (%) # queries Year RE-PACRR PACRR MatchPyramid DUETL DRMM
+HRel-NRel 23.1% 262
+wt09 0.715 (P↑D↑L↑M↑) 0.694 (D↑L↑M↑) 0.656 (P↓D↑l↑) 0.632 (P↓D↑m↓) 0.602 (P↓L↓M↓)
+wt10 0.846 (D↑L↑M↑) 0.828 (D↑L↑M↑) 0.777 (P↓D↑L↑) 0.707 (P↓M↓) 0.739 (P↓M↓)
+wt11 0.837 (P↑D↑L↑M↑) 0.789 (D↑L↑M↑) 0.757 (P↓D↑L↑) 0.700 (P↓d↓M↓) 0.735 (P↓l↑M↓)
+wt12 0.826 (P↑D↑L↑M↑) 0.795 (D↑L↑M↑) 0.741 (P↓D↑L↑) 0.655 (P↓d↓M↓) 0.694 (P↓l↑M↓)
+wt13 0.758 (D↑L↑M↑) 0.749 (D↑L↑M↑) 0.691 (P↓D↑L↑) 0.647 (P↓M↓) 0.637 (P↓M↓)
+wt14 0.766 (D↑L↑M↑) 0.772 (D↑L↑M↑) 0.672 (P↓d↑) 0.648 (P↓) 0.649 (P↓m↓)
+HRel-Rel 8.4% 257
+wt09 0.531 0.539 0.538 0.534 0.539
+wt10 0.587 (p↑D↑L↑) 0.571 (D↑L↑) 0.581 (D↑L↑) 0.529 (P↓M↓) 0.544 (P↓M↓)
+wt11 0.582 (P↑d↓L↑) 0.537 (D↓M↓) 0.608 (P↑L↑) 0.536 (D↓M↓) 0.606 (P↑L↑)
+wt12 0.671 (D↑L↑M↑) 0.655 (D↑L↑M↑) 0.607 (P↓D↑L↑) 0.550 (P↓M↓) 0.549 (P↓M↓)
+wt13 0.572 (D↑L↑) 0.573 (d↑L↑) 0.564 (l↑) 0.545 (P↓m↓) 0.552 (p↓)
+wt14 0.602 (P↑D↑L↑M↑) 0.581 (D↑) 0.575 (D↑) 0.551 0.544 (P↓M↓)
+Rel-NRel 63.5% 290
+wt09 0.682 (P↑D↑L↑M↑) 0.660 (D↑L↑M↑) 0.619 (P↓D↑) 0.598 (P↓D↑) 0.565 (P↓L↓M↓)
+wt10 0.799 (D↑L↑M↑) 0.788 (D↑L↑M↑) 0.718 (P↓L↑) 0.686 (P↓M↓) 0.708 (P↓)
+wt11 0.782 (D↑L↑M↑) 0.771 (D↑L↑M↑) 0.651 (P↓D↑) 0.650 (P↓D↑) 0.614 (P↓L↓M↓)
+wt12 0.741 (P↑D↑L↑M↑) 0.725 (D↑L↑M↑) 0.667 (P↓L↑) 0.619 (P↓D↓M↓) 0.658 (P↓L↑)
+wt13 0.707 (p↑D↑L↑M↑) 0.692 (D↑L↑M↑) 0.635 (P↓D↑L↑) 0.605 (P↓d↑M↓) 0.586 (P↓l↓M↓)
+wt14 0.700 (P↓D↑L↑M↑) 0.721 (D↑L↑M↑) 0.612 (P↓) 0.597 (P↓) 0.603 (P↓)
+Neu-IR 2017, August 2017, Tokyo K. Hui et al.
+shared space. DSSM then performs ranking by comparing the co-
+sine similarities between a given query’s representation and the
+respective representations of documents in the collection.
+As for relevance matching models, Guo et al. [5] argued that
+the type of matching generally used for information retrieval dif-
+fers from the type of matching generally used in NLP tasks. at
+is, ranking models are concerned with relevance matching, where
+the focus is on determining whether one input text (i.e., a docu-
+ment) is relevant to the other input text (i.e., a query). Methods
+that perform semantic matching typically learn input representa-
+tions independent of each other, whereas methods that perform
+relevance matching consider the interactions between two het-
+erogeneous inputs. In particular, Guo et al. proposed the Deep
+Relevance Matching Model (DRMM), which takes a sequence of
+xed-length query term similarity histograms as input. Each his-
+togram hj represents the matches between one query term qj in
+a given query q and the terms in a given document. e query
+similarity histograms are each fed through a series of fully con-
+nected layers to produce a similarity signal for each query term.
+e document’s relevance score rel(q,d) is a weighted summation
+of each query term’s similarity signal. Guo et al.’s DRMM model [5]
+has been reported to outperform all the aforementioned semantic
+matching models by substantial margins on Trec Web Track data.
+Other relevance matching models include the early MatchPyra-
+mid [7, 14] and more recent PACRR [9]. Given that both aim at
+the ad-hoc retrieval task, MatchPyramid and PACRR share similar
+architectures: both start from similarity matrix between a query
+and a document, thereaer combining max-pooling layers on top of
+convolutional neural network (CNN) kernels, and use either LSTM
+or several dense layers to generate a relevance score. However,
+they are motivated quite dierently, and employ dierent CNN
+structures, leading to a signicant dierence in their performance,
+as indicated in Section 4. As a pioneering work, MatchPyramid [14]
+investigated the usefulness of a model architecture from related
+work [7], the impact of dierent kernel sizes, and the impact of
+dierent max-pooling sizes. Meanwhile, PACRR [9] exploits dier-
+ent CNN kernels for dierent kinds of matching paerns, followed
+by two separate max-pooling layers for the lters and matching
+paerns. is seing is motivated by domain insights from ad-
+hoc retrieval, making it dierent from MatchPyramid and CNN
+architectures in computer vision, such as in [16]. Finally, Mitra et
+al. [11] propose DUET, a deep ranking model that considers both
+exact matches between document and query terms (the local model)
+and the similarity between low-dimensional representations of the
+query and document (the distributed model). e authors make a
+distinction between retrieval models that use local representations,
+which are representations in which “each term is represented by
+a unique identier”, and distributed representations that are used
+to “compare the query and the document in the latent semantic
+space.” e RE-PACRR model proposed in this work, being mainly
+based on PACRR, adopts a relevance matching approach, and thus
+is mainly compared with models belonging to this category.
+6 CONCLUSION
+In this work, a novel neural IR model named RE-PACRR is proposed,
+which revisits a number of task-specic insights from traditional
+ad-hoc retrieval, and incorporates building blocks to address them
+in an integrated neural framework. Extensive experiments on Trec
+Web Track data conrm that the proposed model performs beer
+than all baseline models on three benchmarks. In our future work,
+we plan to conduct an ablation study to beer understand the
+contribution of the individual novel components as well as their
+interplay. Another direction is to exploit further insights from the
+literature on ad-hoc retrieval and to devise suitable components to
+make them accessible to a neural model.
+REFERENCES
+[1] Olivier Chapelle, Donald Metlzer, Ya Zhang, and Pierre Grinspan. 2009. Expected
+reciprocal rank for graded relevance. In Proceedings of the 18th ACM conference
+on Information and knowledge management (CIKM ’09). ACM, New York, NY,
+USA, 621–630. DOI:hp://dx.doi.org/10.1145/1645953.1646033
+[2] Nick Craswell, Onno Zoeter, Michael Taylor, and Bill Ramsey. 2008. An ex-
+perimental comparison of click position-bias models. In Proceedings of the 2008
+International Conference on Web Search and Data Mining. ACM, 87–94.
+[3] Mostafa Dehghani, Hamed Zamani, Aliaksei Severyn, Jaap Kamps, and W Bruce
+Cro. 2017. Neural Ranking Models with Weak Supervision. arXiv preprint
+arXiv:1704.08803 (2017).
+[4] Ian Goodfellow, Yoshua Bengio, and Aaron Courville. 2016. Deep Learning. MIT
+Press. hp://www.deeplearningbook.org.
+[5] Jiafeng Guo, Yixing Fan, Qingyao Ai, and W Bruce Cro. 2016. A deep relevance
+matching model for ad-hoc retrieval. In Proceedings of the 25th ACM International
+on Conference on Information and Knowledge Management. ACM, 55–64.
+[6] Manish Gupta and Michael Bendersky. 2015. Information Retrieval with Verbose
+eries. (2015).
+[7] Baotian Hu, Zhengdong Lu, Hang Li, and Qingcai Chen. 2014. Convolutional
+Neural Network Architectures for Matching Natural Language Sentences. In
+Advances in Neural Information Processing Systems 27. 2042–2050.
+[8] Po-Sen Huang, Xiaodong He, Jianfeng Gao, Li Deng, Alex Acero, and Larry
+Heck. 2013. Learning Deep Structured Semantic Models for Web Search Using
+Clickthrough Data. In Proceedings of the 22Nd ACM International Conference on
+Information & Knowledge Management (CIKM ’13). ACM, New York, NY, USA,
+2333–2338. DOI:hp://dx.doi.org/10.1145/2505515.2505665
+[9] Kai Hui, Andrew Yates, Klaus Berberich, and Gerard de Melo. 2017. A Position-
+Aware Deep Model for Relevance Matching in Information Retrieval. arXiv
+preprint arXiv:1704.03940 (2017).
+[10] Kalervo Järvelin and Jaana Kekäläinen. 2002. Cumulated gain-based evaluation
+of IR techniques. ACM Transactions on Information Systems (TOIS) 20, 4 (2002),
+422–446.
+[11] Bhaskar Mitra, Fernando Diaz, and Nick Craswell. 2017. Learning to Match Using
+Local and Distributed Representations of Text for Web Search. In Proceedings of
+WWW 2017. ACM.
+[12] Bhaskar Mitra, Eric Nalisnick, Nick Craswell, and Rich Caruana. 2016. A dual
+embedding space model for document ranking. arXiv preprint arXiv:1602.01137
+(2016).
+[13] I. Ounis, G. Amati, V. Plachouras, B. He, C. Macdonald, and C. Lioma. 2006.
+Terrier: A High Performance and Scalable Information Retrieval Platform. In
+Proceedings of ACM SIGIR’06 Workshop on Open Source Information Retrieval
+(OSIR 2006).
+[14] Liang Pang, Yanyan Lan, Jiafeng Guo, Jun Xu, and Xueqi Cheng. 2016. A Study
+of MatchPyramid Models on Ad-hoc Retrieval. CoRR abs/1606.04648 (2016).
+hp://arxiv.org/abs/1606.04648
+[15] Liang Pang, Yanyan Lan, Jiafeng Guo, Jun Xu, Shengxian Wan, and Xueqi Cheng.
+2016. Text Matching As Image Recognition. In Proceedings of the irtieth AAAI
+Conference on Articial Intelligence (AAAI’16). 2793–2799.
+[16] Karen Simonyan and Andrew Zisserman. 2014. Very deep convolutional net-
+works for large-scale image recognition. arXiv preprint arXiv:1409.1556 (2014).
+[17] Tao Tao and ChengXiang Zhai. 2007. An exploration of proximity measures in
+information retrieval. In Proceedings of the 30th annual international ACM SIGIR
+conference on Research and development in information retrieval. ACM, 295–302.
+[18] Hamed Zamani and W Bruce Cro. 2017. Relevance-based Word Embedding.
+arXiv preprint arXiv:1705.03556 (2017).
+

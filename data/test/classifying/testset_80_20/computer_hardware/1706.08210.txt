@@ -1,0 +1,1578 @@
+ar
+X
+iv
+:1
+70
+6.
+08
+21
+0v
+1 
+ [
+cs
+.D
+C
+] 
+ 2
+6 
+Ju
+n 
+20
+17
+IS-ASGD: Importance Sampling Accelerated
+Asynchronous SGD on Multi-Core Systems
+Fei Wanga, Xiaofeng Gaoa,∗, Weichen Lic, Guihai Chena, Jason Yeb
+aShanghai Key Laboratory of Scalable Computing and Systems,
+Department of Computer Science and Engineering, Shanghai Jiao Tong University
+bIntel Asia-Pacific Research and Development Ltd., Shanghai, China.
+cSchool of Computer Science, Carnegie Mellon University
+Abstract
+Parallel SGD (PSGD) algorithm has been broadly used to accelerate the stochas-
+tic optimization tasks. However its scalability is severely limited by the syn-
+chronization between threads. Asynchronous SGD (ASGD) algorithm is then
+proposed to increase PSGD’s scalability by allowing non-synchronized model
+updates. In practical, lock-free ASGD is preferable since it requires no lock
+operations on the concurrent update of the global model and thus achieves opti-
+mal scalability. It also maintains almost the same convergence bound if certain
+conditions (convexity, continuity and sparsity) are met. With the success of
+lock-free ASGD, researchers developed its variance reduction (VR) variants,
+i.e., VR-integrated lock-free ASGD to achieve superior convergence bound. We
+noted that the VR techniques that have been studied in lock-free ASGD context
+are all variance-reduced-gradient based such as SVRG, SAGA, etc. Unfortu-
+nately, the estimation of variance-reduced-gradient needs to calculate the full
+gradient periodically and doubles the computation cost at each iteration which
+decreases the scalability of ASGD to a very large extent. On the other hand,
+importance sampling (IS) as another elegant and practical VR technique has
+not been studied nor implemented in conjunction with lock-free ASGD. One
+important advantage of IS is that, not like variance-reduced-gradient VR algo-
+rithms, IS algorithm achieves the goal of VR through weighted sampling which
+does not introduce any extra on-line computation and thus preserves the origi-
+nal scalability of ASGD. We are thus motivated to study the application of IS
+in lock-free ASGD and propose our IS-ASGD algorithm to achieve a superior
+convergence bound while maintaining the original high scalability of ASGD. We
+also conduct experimental evaluations that verify the effectiveness of IS-ASGD
+algorithm with datasets that are popularly adopted in relative researches.
+Keywords: Asynchronous SGD, Importance Sampling, Variance Reduction
+∗Corresponding Author
+Email addresses: bomber@sjtu.edu.cn (Fei Wang), gao-xf@cs.sjtu.edu.cn (Xiaofeng
+Gao), weichenli@cmu.edu (Weichen Li), gchen@cs.sjtu.edu.cn (Guihai Chen),
+jason.ye.y@intel.com (Jason Ye)
+Preprint submitted to Journal of Parallel and Distributed Computing June 27, 2017
+1. Introduction
+For the optimization of general finite-sum problems, stochastic gradient de-
+scent (SGD) may be the most widely adopted algorithm. It needs much less
+computation and empirically achieves faster convergence rate comparing to tra-
+ditional gradient descent. Assume φi, i ∈ {1, 2, ..., n} are vector functions that
+maps Rd → R, i ∼ D means i is drawn iteratively with respect to probability
+distribution D. We have the following optimization problems:
+min
+w∈Rd
+F (w) := Ei∼D(φi(w) + ηr(w)) (1)
+where r(w) is the regularizer and η is the regularization factor. Denote fi(w) =
+φi(w) + ηr(w), for stochastic gradient descent optimization, w is updated as:
+wt+1 ← wt − λ∇fit(wt) (2)
+where it is the index of the selected sample at t-th iteration and λ is the step-
+size. One may notice that this stochastic algorithm is a strict serial approach
+which is incredibly slow when facing large-scale datasets. With the emergence
+of ever-increasing computational capabilities brought by high concurrency of
+the cutting-edge hardwares, parallel SGD (PSGD) algorithms [1], [2], [3], [4],
+[5], [6], [7], [8], [9], etc., are proposed to accelerate the stochastic gradient de-
+scent optimization procedure by utilizing full concurrency. In order to obtain an
+unbiased gradient, traditional PSGD algorithms synchronize the computation
+results between threads at the end of each iteration. It is commonly known that
+its scalability is severely limited by the iteratively synchronization which causes
+heavy CPU waste.
+To prevent such performance bottleneck caused by iteratively synchroniza-
+tion, two different variants of asynchronous schemes, i.e., asynchronous SGD
+(ASGD), have been developed depending on whether the working threads have
+to acquire the global lock before updating the model. These two kinds of algo-
+rithms all face the problem of stalled-model which slows down the convergence.
+For ASGD algorithms that perform model update in a lock-required manner
+e.g., [10], [11], [12], [13], [14], [15], [16], [17] and [18], the scalability may still
+be hampered by the frequent CPU-wasting lock contentions. Such contention
+of lock is especially severe on systems that have relative low data transform
+latency, e.g., shared-memory multi-core system. With the emergence of large-
+scale optimization tasks, the requirement of achieving high scalability for ASGD
+optimization procedure becomes even more critical. Algorithms that perform
+lock-free model update, i.e., lock-free ASGD such as [19], [20], [21], [22], [23],
+[24], [25] and [26] are preferred to further increase the scalability of ASGD
+on popular multi-core systems. However, due to the elimination of the lock-
+and-write scheme of the global model for the purpose of scalability, the worker
+threads compute gradients based on the model that is in an inconsistent state,
+2
+i.e., at arbitrary moment the global model is possibly the mixed value of several
+worker threads’ update. Indeed, such stalled and inconsistent model obviously
+violates the original theoretical guarantee for convergence bounding of SGD and
+invokes the risk of non-convergence. Fortunately, it is proved that the conver-
+gence bound remains almost as same as the SGD if certain sparsity, convexity
+and continuity conditions are met. With the increased scalability and proven
+convergence bound, lock-free ASGD algorithms quickly become indispensable
+in large-scale optimization tasks.
+Meanwhile, using variance reduction (VR) techniques to further improve con-
+vergence bound of stochastic optimizations becomes popular and have achieved
+important progresses recently. VR is a kind of algorithm that is applied dur-
+ing the stochastic optimization process, e.g., SGD, to reduce the variance of
+the stochastic gradient. Most VR algorithms use historical full gradients and
+model snapshot to reduce the gradient variance of SGD which has been proved
+to improve the convergence rate[27], [28], [29], [30], [31], [32], [33], [34], i.e., a
+superior convergence bound. In consideration of the success of lock-free ASGD
+algorithms on shared-memory multi-core systems, researchers start to combine
+VR algorithms with lock-free ASGD algorithms such as [35], [36], [37] and
+asynchronous stochastic coordinate descent (ASCD) [38] algorithms to improve
+the convergence bound. These VR techniques are typically variance-reduced-
+gradient based, for example, SVRG [39], SAGA [40], S2CD [41], SAG [42]. Reddi
+et al. [43] conducted experimental result on SVRG, SAGA and SAG integrated
+lock-free ASGD in comparison with standard SGD and lock-free ASGD. In [44],
+the authors further compared the convergence rate improvement of the SVRG-
+integrated lock-free ASGD (SVRG-ASGD) between ASGD in a non-convex con-
+text. These results show that VR helps achieving superior convergence bound
+for lock-free ASGD and even better minimizer than SGD in some cases.
+However, one critical issue of variance-reduced-gradient based VR algorithms
+is that they need the computation of the full gradient and double computa-
+tion cost per iteration which decrease the scalability to a large extent. For
+large/huge-scale datasets, computing the full gradient is sometimes computa-
+tional infeasible. On the other hand, as is well known that along with the
+variance-reduced-gradient VR algorithms, another elegant and practical VR
+technique, namely, importance sampling (IS) also achieves decreased gradient
+variance and obtain a superior convergence bound in SGD algorithms [45], [46],
+[47], [48], [49]. While most recent researches focused on the application of the
+variance-reduced-gradient based VR techniques on lock-free ASGD, IS algo-
+rithms have neither been studied nor implemented in conjunction with lock-free
+ASGD algorithms by far. We emphasis that this missing part is worth study-
+ing. Noted that, the key advantage of IS based VR is that comparing to the
+variance-reduced-gradient based VR techniques which needs extra computation
+of full gradient and variance-reduced-gradient at each iteration, IS algorithm can
+be implemented with no requirement of extra on-line computation at all by using
+shadow threads to construct sample sequences (or completely in off-line man-
+ner) and let the computation threads iterate over the pre-constructed sequence.
+That is, the convergence bound of lock-free ASGD can be decreased with no
+3
+hurting of the scalability by using IS based VR algorithms which variance-
+reduced-gradient based VR is not able to. In theory, the computation cost of
+variance-reduced-gradient decreases the scalability more than a half and is ofter
+far more than that in practical.
+With these considerations, we see crucial demand in developing the IS-
+integrated lock-free ASGD (IS-ASGD). We propose the IS-ASGD algorithm
+with detailed analysis of convergence guarantee and highly optimized imple-
+mentation as the main contributions of this paper. We also conduct experimen-
+tal results that verify the effectiveness of IS-ASGD. For clarity, the lock-free
+ASGD is hereinafter by default refer to as ASGD. We first briefly introduce the
+preliminaries and main results of variance reduction techniques in stochastic op-
+timizations and study the missing part of these two algorithms, i.e., IS-ASGD.
+2. Variance Reduction in Stochastic Optimizations
+Before discussing the design of IS-ASGD, we first give a brief introduction
+of some necessary preliminaries and concepts of VR for stochastic optimiza-
+tions based on the previous works [50], [47], [48], [45]. Recall the stochastic
+optimization problem in Equation 1, since the training sample is selected in a
+stochastic manner, ∇fit(wt) varies with t despite of its expectation equals to
+∇F (w). Such variance of the gradient slows down the convergence rate of the
+optimization procedure to a large extent. VR techniques are thus proposed to
+reduced the variance which then accelerates the convergence rate. Like previous
+related literatures, we make the following assumptions for stochastic optimiza-
+tion problems we studied in this paper as shown in Equation 1 which is necessary
+for the bounding of convergence procedure in ASGD and VR.
+• F is strongly convex with parameter µ, that is:
+〈x− y,∇F (x) −∇F (y)〉 ≥ µ‖x− y‖22, ∀x, y ∈ Rd (3)
+• Each fi is continuously differentiable and ∇fi has Lipschitz constant Li,
+i.e.,
+‖∇fi(x) − fi(y)‖2 ≤ Li‖x− y‖2, ∀x, y ∈ Rd (4)
+Where ‖ · ‖2 is standard Euclidean norm.
+2.1. Variance-reduced-gradient VR Algorithm
+Variance-reduced-gradient based SGD uses historical full gradient and model
+snapshot to construct a new gradient estimator which yields lower variance than
+simply using stochastic gradient. A generic scheme of this kind of VR algorithms
+is shown in algorithm 1[43].
+Be noted that {αti}ni=1 is computed based on historical full gradient and
+model, which is then used to evaluate the variance-reduced gradient vt. The
+update of {αt+1i }ni=0 does not necessarily to be performed at each iteration
+(depends on the update strategy). As can be seen that a frequent update of
+4
+Algorithm 1 Generic Variance-reduced-gradient Based SGD
+1: procedure Update_Weight(T)
+2: Generate IT = {i0, ...iT } from it ∈ {i}ni=0 w.r.t uniform distribution.
+3: for t = 0; t 6= T ; t++ do
+4: vt+1 ← ∇fit(wt)−∇fit(αtit) +
+1
+n
+∑n
+i=0∇fi(αti)
+5: wt+1 ← wt − λvt ⊲ w is the global model.
+6: {αt+1i }ni=0 =Schedule_Update(wtt+1t=0, {αti})
+7: return
+{αt+1i }ni=0 in line 4 leads to frequent re-computation of 1n
+∑n
+i=0∇fi(αti), i.e.,
+the full-gradient. For large-scale datasets, the computation of the full-gradient
+could take extremely long time. A tradeoff between computational feasibility
+and theoretical optimality is updating {αt+1i }ni=0 at the beginning of each epoch
+instead of iteratively.
+Consider applying variance-reduced-gradient based VR techniques in ASGD
+[35][44], denote tn as the iterations of each epoch, only when tn ≫ n will the
+computation of the full-gradient has little effect on the scalability. However, in
+practical algorithms, tn is typically set to n for each epoch which means the
+extra computation cost can not be ignored and still incurs significant scalability
+decrease. Meanwhile, the computation of ∇fit(αtit) always doubles the com-
+putation cost of wt+1. That is, even if we omit the extra computation of the
+full-gradient, the scalability is still to be decreased to half. This means that
+the improvement of convergence rate should be sufficiently large to compensate
+the loss of scalability. However, according to the improved convergence bounds
+been proved, the actual speed up of convergence rate depends on delay param-
+eter τ , residual ǫ, degree of conflict, etc., which is rather uncontrollable and
+sometimes the improvement is little. With these concerns, we see necessity in
+developing a new VR scheme for ASGD which improves the convergence rate
+while maintaining the optimal scalability. Importance sampling which needs
+no extra on-line computation (the computation of the sampling distribution P
+and sampling sequence w.r.t to P can be generated totally off-line) becomes our
+choice naturally.
+2.2. Importance Sampling VR Algorithms
+Importance sampling tries to reduce the gradient variance through an non-
+uniform sampling procedure instead of drawing sample uniformly as conven-
+tional stochastic optimization procedures do. For standard stochastic optimiza-
+tions, the sampling probability of i-th sample at t-th iteration, namely, pti, equals
+to 1/n while in an importance sampling scheme, pti is endowed with an impor-
+tance factor Iti and thus the i-th sample is sampled at t-th iteration with a
+weighted probability:
+pti = I
+t
+i /n, s.t.
+n∑
+i=0
+pti = 1 (5)
+5
+With this non-uniform sampling procedure, to obtain an unbiased expectation,
+the update of wt is modified as:
+wt+1 ← wt −
+λ
+nptit
+∇fit(wt) (6)
+where it is drawn i.i.d w.r.t the weighted sampling probability distribution
+P t = {pti}ni=0. The generic scheme of IS-integrated SGD algorithm is shown
+in Algorithm 2.
+Algorithm 2 Naive Importance Sampling For SGD Algorithm
+1: procedure IS-SGD(w0, {fi}ni=0, λ)
+2: for t = 0; t 6= T ; t++ do
+3: Construct Sampling Distribution P t
+4: Sample it from D = {i}ni=0 w.r.t distribution P t.
+5: wt+1 ← wt + λnpt
+it
+∇fit(wt)
+Importance Sampling For Variance Reduction. Recall the stochastic problem in
+Equation 1, using the analysis results from [45], we have the following lemma:
+Lemma 1. Set σ2 = E‖∇fi(w⋆)‖22 where w⋆ = argmin
+w
+F (w). Suppose that
+λ ≤ 1
+µ
+, with the update scheme defined in Algorithm 2, the following inequality
+satisfy:
+E[F (wt)− F (w⋆)] ≤
+λt
+µ
+EV
+(
+(nptit)
+−1∇fit(wt)
+)
+(7)
+where the variance is defined as V
+(
+(nptit)
+−1∇fit(wt)
+)
+= E‖(nptit)−1∇fit(wt) −
+∇F (wt)‖22, and the expectation is estimated w.r.t distribution P t.
+It is easy to verify that the optimal sampling probability pti is:
+pti =
+‖∇fi(wt)‖2
+∑n
+j=1 ‖∇fj(wt)‖2
+, ∀i ∈ {1, 2, ..., n}. (8)
+However, such iteratively re-estimation of P t is completely computational infea-
+sible. The authors propose to use the upper-bound of ‖∇fi(wt)‖2 as an approx-
+imation. Recall the definition of Lipschitz constant, we have ‖∇fi(wt)‖2 ≤ Li
+when fi(w) is Li-Lipschitz with respect to ‖ · ‖2. Thus the actual sampling
+probability pi is calculated according to:
+pi =
+Li
+∑n
+j=1 Lj
+, ∀i ∈ {1, 2, ..., n} . (9)
+The authors prove that using such approximated IS scheme still decreases the
+convergence bound, we skip repeating their analysis for clarity. It is obvious
+that Li of each fi can be analyzed and computed beforehand. For example,
+6
+for L1-regularized optimization problem with squared hinge loss, xi as the i-th
+sample. The ‖ · ‖2 norm of the gradient of fi can be bounded as:
+‖∇fi(w)‖2 ≤ 2⌊1 + ‖xi‖2/
+√
+λ⌋+‖xi‖2 (10)
+That is, we have the Lipschitz constant as Li = 2(1+ ‖xi‖2/
+√
+λ)‖xi‖2. For L2-
+regularized squared hinge loss we have Li = 2(1+‖xi‖2/
+√
+λ)‖xi‖2+
+√
+λ, etc. In
+fact, ‖xi‖2 is the only variable in the calculation of Li if the above mentioned
+convexity and Lipschitz-continuity conditions are met. With these analysis, the
+sampling distribution P can be constructed off-line for only once. The pseudo
+code of practical IS-SGD algorithm can be written as the following:
+Algorithm 3 Practical Importance Sampling For SGD
+1: procedure IS-SGD(w0, {fi}ni=0, λ)
+2: Construct Sampling Distribution P According to Equation 9
+3: for i = 0; i 6= T ; i++ do
+4: Sample it from D = {i}ni=0 w.r.t distribution P .
+5: wt+1 ← wt + λnpit∇fit(wt)
+Noted that line 4 can also be performed by a dedicated shadow thread or
+completely off-line which means that there can be no extra computation at each
+iteration. Since ASGD is developed with the aim of spending less absolute time
+on training large-scale data, preserving the high scalability is greatly desired
+when VR algorithms are applied. As we discussed above, variance-reduced-
+gradient based VR algorithm needs at least doubled on-line computation cost
+while for importance sampling there can be theoretically no extra on-line com-
+putation. We thus consider IS as a very attractive VR technique to be combined
+with ASGD in the goal of improving convergence bound with high scalability.
+3. Importance Sampling For ASGD
+In this section we propose IS-ASGD, i.e., applying IS in ASGD as a variance
+reduction technique to achieve a superior convergence bound. We first give the
+implementation details of IS-ASGD as the following.
+3.1. Implementation of IS-ASGD
+On the implementation of IS-ASGD, we have two schemes based on when
+sampling sequence is generated. The pseudo code of the generic scheme of IS-
+ASGD is shown in Algorithm 4.
+In the first scheme, the generation of sampling sequence is performed by
+a shadow thread tgen, i.e., for num_threads threads and num_epochs epoch
+training, tgen generates num_epochs ∗ num_threads sampling sequences w.r.t
+P . For each working thread, it switches to corresponding sequence at the start
+of epoch. While for the second scheme, the generation of sampling sequences
+for each working thread w.r.t P is performed totally off-line.
+7
+Algorithm 4 IS-ASGD Algorithm
+1: procedure IS-ASGD(numthreads, numepochs)
+2: Construct Sampling Distribution P according to Algorithm 9
+3: Spawn IS-Generation thread tgen
+4: Parallel do with numthreads
+5: tid← GetTid()
+6: for n = 0;n 6= numepochs;n++ do
+7: for i = 0; i 6= len; i++ do
+8: it = s[n][tid][i]
+9: wt+1 ← wt − λnpit∇fit(wt)
+10: return
+Since we use shadow thread to generate the sampling sequence by default,
+if the generation of sampling sequence is faster than grad computation then the
+first scheme is preferred, otherwise, we will use the off-line scheme.
+Optimized IS-sequence Generation. The IS-sequence generation could be a new
+performance bottleneck of IS-ASGD which decreases the scalability if its com-
+pletion time is too long to be hided. To avoid this problem, we use the following
+sampling scheme to generate the IS-sequence. See Algorithm 5.
+Algorithm 5 FAST-IS
+procedure IS-Sequence Generation(seq,x)
+Constructing Sampling Structure according to P
+cursor ← 0
+for i = 0; i 6= len; i++ do
+x[i]_s← cursor
+x[i]_e← x[i]_s+p[i]
+cursor ← x[i]_e
+for i = 0; i 6= len; i++ do
+p← random(0, 1]
+left← 0
+right← n− 1
+while left ≤ rignt do
+idx← (left+ right)/2
+if p > x[idx]_s and p ≤ x[idx]_e then
+seq[i] = idx
+else if p > x[idx]_e then
+left← idx+ 1
+else
+right← idx− 1
+return
+It is easy to verify that the computational complexity of Algorithm 5 is
+8
+o(n logn2 ). Meanwhile, the computation of n grads, i.e., one epoch also has a
+computational complexity of o(n/num_threads). Since the execution unit of
+grads computation includes several vector additions and multiplications depend-
+ing on the dimensionality while IS-sequence generation only has comparison,
+using the first scheme will not cause working thread waiting in practical accord-
+ing to our observation. Based on the above discussion, we follow scheme one in
+our practical implementation of IS-ASGD.
+4. Convergence Analysis of IS-ASGD
+With the preserving of the high scalability, we analyze the convergence bound
+of IS-ASGD in this section. Analysis of lock-free asynchronous algorithm is not
+easy due to the inconsistent state of the global model, i.e., the model could
+be none of any result produced by a working thread. To avoid this difficulty,
+previous related literatures give various convergence bound analysis of ASGD
+with bounded variance and concurrency assumptions. Be noted that sparsity
+assumption is made in the original version [19] of ASGD while in some other
+researches which provide more general forms of convergence bound it is not
+required. We follow the analysis of Horia et al.[51] which models ASGD as
+SGD with perturbed inputs i.e., the inconsistent state of the model is treated
+as consistent model with noise added. This analysis scheme is more general,
+compact and most importantly, makes the analysis of the effect of IS relative
+simple in ASGD context. We first give a brief introduction of the perturbed
+iterate analysis of ASGD[51] which serves as the foundation of our analysis. Be
+noted that for the ease of analysis, we assume the optimizer, w⋆ reaches the
+global optimal, i.e., ∇F (w⋆) = 0.
+4.1. Perturbed Iterate Analysis
+We follow the analysis result of Horia et al [51]. where the inconsistent state
+caused by lock-free update can be deemed as consistent input with stochastic
+noise applied in a SGD context. Follow this scheme, the update of wt can be
+modeled as:
+wt+1 = wt − λ∇fit(wt + θt) (11)
+where θt is the stochastic error term. Define:
+ŵt = wt + θt. (12)
+We have:
+‖wt+1 − w⋆‖22 = ‖wt − λ∇fit(ŵt)− w⋆‖22
+= ‖wt − w⋆‖22 − 2λ〈wt − w⋆,∇fit(ŵt)〉+ λ2‖∇fit(ŵt)‖22
+= ‖wt − w⋆‖22 − 2λ〈ŵt − w⋆,∇fit(ŵt)〉+
+λ2‖∇fit(ŵt)‖22 + 2λ〈ŵt − wt,∇fit(ŵt)〉
+(13)
+9
+Recall the convexity assumption i.e., F is strongly convex with parameter µ, we
+have:
+〈ŵt − w⋆,∇fit(ŵt)〉 ≥ µ‖ŵt − w⋆‖22 ≥
+µ
+2
+‖wt − w⋆‖22 − µ‖ŵt − wt‖22 (14)
+Further define ǫt as:
+ǫt = E‖wt − w⋆‖22 (15)
+According to Equation 13 and 14, we obtain
+ǫt+1 ≤ (1−λµ)ǫt+λ2 E‖∇fit(ŵt)‖22
+︸ ︷︷ ︸
+Rt
+0
++2λµE‖ŵt − wt‖22
+︸ ︷︷ ︸
+Rt
+1
++2λE〈ŵt − wt,∇fit(ŵt)〉
+︸ ︷︷ ︸
+Rt
+2
+(16)
+Among the three labeled terms, notice that Rt0 is a common term that exists
+in both serial SGD and ASGD while Rt1 and R
+t
+2 are additional error terms
+introduced by the inconsistency of the model. It can be noted that Rt1 reflects
+the difference between the true model and the perturbed (noise added) one, and
+Rt2 measures the projection of such noise on the gradient of each iteration. It
+is easy to verify that for bounded Rt0, R
+t
+1 and R
+t
+2, convergence bound can be
+obtained through simple algebras. With such scheme of modeling, the difficulty
+of the analysis of convergence bound caused by the asynchrony can be greatly
+simplified.
+The authors first bound E‖∇fit(ŵt)‖2 ≤M , i.e., Rt0 ≤M2. Next, to bound
+Rt1 and R
+t
+2, the concept of conflict graph is introduced as the following.
+Conflict graph. Denote ci ⊆ {j}dj=0 as the set of feature index of data sample xi,
+i.e., j ∈ ci only if the j-th feature exists in xi. In a conflict graph G = {eij , vi},
+i, j ∈ {0, 1, ..., n}, vertexes vi and vj are connected with edge eij if and only if
+ci ∩ cj 6= ∅.
+With the above definitions, two factors that reflect the extent of conflict
+update are defined:
+• Delay parameter, τ , i.e., the maximum lag between when a gradient is
+computed and when it is used. It is easy to verify that τ can be deemed
+as a value linear to the number of working threads, i.e., the concurrency.
+• Conflict parameter, ∆̄, which is the average degree of the conflict graph
+G, obviously, datasets with higher ∆̄ suffers severer extent of conflict up-
+dates and vice versa.
+As can be seen that, these two parameters measure the extent of inconsistency
+from two aspects. τ is set as the proxy of concurrency of ASGD (Be noted
+that when concurrency is 1, i.e., the serial SGD, τ should be 0.) which can
+be controlled by the users while ∆̄ measures the intrinsic potentials of conflict
+update of dataset which is non-relevant of the algorithm’s settings. The authors
+prove that Rt1 is bounded as:
+Rt1 ≤ λ2M2
+(
+2τ + 8τ2
+∆̄
+n
+)
+(17)
+10
+and Rt2 bounded as:
+Rt2 ≤ 4λM2τ
+∆̄
+n
+(18)
+Plugging Equation 17 and 18 into Equation 16, we have,
+ǫt+1 ≤ (1 − λµ)ǫt + λ2M2
+︸ ︷︷ ︸
+ξ
++λ2M2
+(
+8τ
+∆̄
+n
++ 4λµτ + 16λµτ2
+∆̄
+n
+︸ ︷︷ ︸
+δ
+)
+(19)
+Since for the SGD case which τ = 0, i.e., ξ term only , we have:
+ǫt+1 ≤ (1− λµ)ǫt + λ2M2 (20)
+And we know that for ξ (i.e., SGD), with the assumption that ∇F (w⋆) = 0, the
+convergence bound is obtained as
+k = log(2ǫ0/ǫ)
+2M2
+ǫµ2
+(21)
+where k is the number of iterations to ensure E‖wk − w⋆‖22 ≤ ǫ. By setting the
+stepsize λ = ǫµ
+2M2
+, it is easy to verify that when τ is bounded as the following
+O
+(
+min
+{
+n/∆̄,M2/ǫµ2
+})
+(22)
+which bounds δ as an order-wise constant, then Equation 19 (ASGD) achieves
+nearly same recursion as in Equation 20 (SGD), i.e.,
+k = O(1)
+M2 log( ǫ0
+ǫ
+)
+ǫµ2
+(23)
+which implies a nearly linear speedup. It is obvious that this conclusion also
+holds in IS-ASGD since we have bounded δ as constant which is independent
+of IS. Following this analysis, we consider IS takes effect on term ξ in Equation
+19 only. Knowing the fact that
+M2 := max
+0≤t≤T
+E‖∇fit(ŵt)‖22 ≤ EL2i ǫ̂0, i ∈ {0, 1..., n} (24)
+where ǫ̂0 := max0≤t≤T E‖ŵt − w⋆‖22. For SGD, according to Equation 21, we
+have a less tight k:
+k = log(2ǫ0/ǫ)
+2EL2i ǫ̂0
+ǫµ2
+(25)
+According to the convergence bound result of IS in [48], when IS procedure
+described in Algorithm 4 is applied in SGD, i.e., IS-SGD, the convergence bound
+can be reduced from quadratic dependence to linear dependence on the average
+conditioning as the following:
+k = log(2ǫ0/ǫ)
+(2L̄ǫ̂0
+µǫ
+)
+(26)
+11
+when stepsize is set as λ = 1/(2 supL), where supL is the supremum of Li. By
+taking the additional error term caused by asynchrony, i.e., δ into account, it
+is easy to obtain the following convergence bound by using the same analysis
+trick in ASGD directly.
+Lemma 2. For IS-ASGD algorithm that follows the scheme of Algorithm 4,
+by satisfying the convexity and continuity conditions in Equation 3 and Equa-
+tion 4. With a proper stepsize as λ = 1/(2 supL), when τ is bounded as
+O
+(
+min
+{
+n/∆̄, supL
+µ
+})
+. The iteration steps k which is sufficient to achieve ac-
+curacy of ǫ, i.e., E‖wk − w⋆‖22 ≤ ǫ, is defined as:
+k = O(1) log(ǫ0/ǫ)
+( L̄ǫ̂0
+µǫ
+)
+(27)
+Obviously this bound inherits the superiority of IS-SGD over ASGD, and it
+shows that a nearly linear speedup is achievable for IS-ASGD comparing to
+IS-SGD, which is similar to the previous result[44] that shows SVRG-ASGD
+reaches nearly linear speedup of SVRG-SGD.
+In brief, the key of the convergence bound analysis is the serialization of
+the asynchrony which divides the update scheme into two independent terms,
+namely, ξ and δ. Such independence makes the analysis much simpler, that is,
+the IS decrease the convergence bound of ξ as the same in SGD case while the
+two bounded error terms caused by the asynchrony, i.e., Rt1, R
+t
+2, increase the
+convergence bound linearly up to a constant when certain conditions are met
+(concurrency limitation and proper stepsize). We next evaluate the IS-ASGD
+algorithm to show its effectiveness in convergence acceleration and maintaining
+high scalability in the meanwhile.
+5. Experimental Results
+In this section we evaluate the performance of IS-ASGD through the compar-
+ison between IS-ASGD, SVRG-ASGD, ASGD and SGD. The evaluation includes
+the measurement on convergence bound, gradient variance and scalability. Our
+testbed is a shared-memory multi-core system with XeonE5-2699V4 (2 sock-
+ets and 44 cores) and 128G main memory. The datasets we choose are from
+LibSVM1 which is popularly adopted as the evaluation set for stochastic opti-
+mization related researches. Be noted that we implement IS-ASGD based on
+the source code of Hogwild! algorithm2 which can be deemed as the standard
+implementation of ASGD in C++. The source code of our proposed IS-ASGD
+along with demo data can be accessed from author’s git3 repository. The de-
+scription of evaluation dataset is shown in Table 1. With the intention to show a
+full spectrum performance, we choose datasets from relative sparse to extremely
+sparse.
+1https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/
+2http://i.stanford.edu/hazy/victor/hogwildtl-v03a-source.tar.gz
+3https://github.com/faywwww/IS-ASGD
+12
+Table 1: Evaluation Datasets
+Name Dimension Instances Sparsity
+w8a 300 49,749 relative-sparse
+madelon 500 2,000 sparse
+kdd2010_algebra 20,216,830 8,407,752 extremely-sparse
+5.1. Convergence Bound Improvement
+We conduct four different concurrency settings for each dataset, {2, 4, 8, 16}
+for relative small datasets, i.e., w8a and madelon (scaled by the authors) since
+we observe few speedup when concurrency grows sufficiently large; {24, 32, 38,
+44} for relative large-scale dataset kdd2010_algebra due to its huge amount of
+data samples. Figure 1 to Figure 3 shows the experimental results on datasets
+w8a, madelon and kdd2010_algebra between standard SGD, ASGD, SVRG-
+ASGD and IS-ASGD respectively. Each row shows the result of one concurrency
+setting, the first column shows the rooted mean square error (RMSE) on train
+set while the second column shows the RMSE on test set. The last column
+shows the gradient variance, i.e., E‖(nptit)−1∇fit(wt)−∇F (wt)‖2.
+From the results, we firstly noted that IS-ASGD does achieve superior con-
+vergence bound than ASGD in all cases and concurrency settings which verify
+the effectiveness of IS for ASGD. On the comparison between IS-ASGD and
+SVRG-ASGD, we see that in w8a, SVRG-ASGD achieves better convergence
+bound than IS-ASGD in concurrency 2 and 4. However with the increasing of
+concurrency, the convergence bound of SVRG-ASGD deteriorates quickly while
+IS-ASGD is almost not affected. In concurrency 8, the convergence bound
+between SVRG-ASGD and IS-ASGD are very close while in concurrency 12,
+the convergence bound of SVRG-ASGD is inferior to IS-ASGD. In madelon,
+the result is different, IS-ASGD outperform SVRG-ASGD consistently in all
+concurrency settings, similar to w8a, the performance of SVRG-ASGD again
+deteriorates quickly as the concurrency grows. For kdda2010_algebra which has
+huge dimensionality and extremely sparse, SVRG-ASGD remains the most su-
+perior in all concurrency settings with large advantage. However, as we shall see
+in the scalability result, this comes at the price of drastic decrease of scalability.
+Meanwhile, the variance shown in the last column confirms the effectiveness of
+variance reduction of SVRG and IS for ASGD. It can be seen that the conver-
+gence rate is highly related to the variance, i.e., a lower variance does result in
+a higher convergence rate.
+13
+0 5 10 15
+Epochs (w8a)
+0.98695
+0.98700
+0.98705
+0.98710
+0.98715
+0.98720
+0.98725
+0.98730
+0.98735
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+2
+0 5 10 15
+Epochs (w8a)
+0.9865
+0.9866
+0.9867
+0.9868
+0.9869
+Te
+st
+ R
+M
+SE
+ τ
+=
+2
+0 5 10 15
+Epochs (w8a)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+2
+0 5 10 15
+Epochs (w8a)
+0.98700
+0.98705
+0.98710
+0.98715
+0.98720
+0.98725
+0.98730
+0.98735
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+4
+0 5 10 15
+Epochs (w8a)
+0.9865
+0.9866
+0.9867
+0.9868
+0.9869
+Te
+st
+ R
+M
+SE
+ τ
+=
+4
+0 5 10 15
+Epochs (w8a)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+4
+0 5 10 15
+Epochs (w8a)
+0.98705
+0.98710
+0.98715
+0.98720
+0.98725
+0.98730
+0.98735
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+8
+0 5 10 15
+Epochs (w8a)
+0.98655
+0.98660
+0.98665
+0.98670
+0.98675
+0.98680
+0.98685
+0.98690
+0.98695
+Te
+st
+ R
+M
+SE
+ τ
+=
+8
+0 5 10 15
+Epochs (w8a)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+8
+0 5 10 15
+Epochs (w8a)
+0.98705
+0.98710
+0.98715
+0.98720
+0.98725
+0.98730
+0.98735
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+12
+0 5 10 15
+Epochs (w8a)
+0.98660
+0.98665
+0.98670
+0.98675
+0.98680
+0.98685
+0.98690
+0.98695
+Te
+st
+ R
+M
+SE
+ τ
+=
+12
+SGD ASGD IS-ASGD SVRG-ASGD
+0 5 10 15
+Epochs (w8a)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+12
+Figure 1: The evaluation on dataset w8a with 4 concurrency settings τ = 2, 4, 8, 12. The
+first column shows the RMSE of training set, the second column shows the RMSE of test set
+and the last row shows the gradient variance, i.e., E‖(npt
+it
+)−1∇fit (wt)−∇F (wt)‖2.
+14
+0 5 10 15
+Epochs (madelon)
+0.7074
+0.7076
+0.7078
+0.7080
+0.7082
+0.7084
+0.7086
+0.7088
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+2
+0 5 10 15
+Epochs (madelon)
+0.7110
+0.7112
+0.7114
+0.7116
+0.7118
+0.7120
+0.7122
+0.7124
+Te
+st
+ R
+M
+SE
+ τ
+=
+2
+0 5 10 15
+Epochs (madelon)
+0.00
+0.02
+0.04
+0.06
+0.08
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+2
+0 5 10 15
+Epochs (madelon)
+0.7074
+0.7076
+0.7078
+0.7080
+0.7082
+0.7084
+0.7086
+0.7088
+0.7090
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+4
+0 5 10 15
+Epochs (madelon)
+0.7110
+0.7112
+0.7114
+0.7116
+0.7118
+0.7120
+0.7122
+0.7124
+Te
+st
+ R
+M
+SE
+ τ
+=
+4
+0 5 10 15
+Epochs (madelon)
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+4
+0 5 10 15
+Epochs (madelon)
+0.70750
+0.70775
+0.70800
+0.70825
+0.70850
+0.70875
+0.70900
+0.70925
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+8
+0 5 10 15
+Epochs (madelon)
+0.71100
+0.71125
+0.71150
+0.71175
+0.71200
+0.71225
+0.71250
+0.71275
+Te
+st
+ R
+M
+SE
+ τ
+=
+8
+0 5 10 15
+Epochs (madelon)
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+8
+0 5 10 15
+Epochs (madelon)
+0.7074
+0.7076
+0.7078
+0.7080
+0.7082
+0.7084
+0.7086
+0.7088
+0.7090
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+12
+0 5 10 15
+Epochs (madelon)
+0.71100
+0.71125
+0.71150
+0.71175
+0.71200
+0.71225
+0.71250
+Te
+st
+ R
+M
+SE
+ τ
+=
+12
+SGD ASGD IS-ASGD SVRG-ASGD
+0 5 10 15
+Epochs (madelon)
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+12
+Figure 2: The evaluation on dataset madelon with 4 concurrency settings τ = 2, 4, 8, 12. The
+first column shows the RMSE of training set, the second column shows the RMSE of test set
+and the last row shows the gradient variance, i.e., E‖(npt
+it
+)−1∇fit (wt)−∇F (wt)‖2.
+15
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.650
+0.675
+0.700
+0.725
+0.750
+0.775
+0.800
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+32
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.64
+0.66
+0.68
+0.70
+0.72
+0.74
+0.76
+0.78
+0.80
+Te
+st
+ R
+M
+SE
+ τ
+=
+32
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+32
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.650
+0.675
+0.700
+0.725
+0.750
+0.775
+0.800
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+38
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.64
+0.66
+0.68
+0.70
+0.72
+0.74
+0.76
+0.78
+0.80
+Te
+st
+ R
+M
+SE
+ τ
+=
+38
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+38
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.650
+0.675
+0.700
+0.725
+0.750
+0.775
+0.800
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+40
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.64
+0.66
+0.68
+0.70
+0.72
+0.74
+0.76
+0.78
+0.80
+Te
+st
+ R
+M
+SE
+ τ
+=
+40
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+40
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.650
+0.675
+0.700
+0.725
+0.750
+0.775
+0.800
+Tr
+ai
+n 
+RM
+SE
+ τ
+=
+44
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.64
+0.66
+0.68
+0.70
+0.72
+0.74
+0.76
+0.78
+0.80
+Te
+st
+ R
+M
+SE
+ τ
+=
+44
+SGD ASGD IS-ASGD SVRG-ASGD
+0 5 10 15
+Epochs (kdd2010_algebra)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+||∇
+f i
+−
+∇F
+|| 2
+ τ
+=
+44
+Figure 3: The evaluation on dataset kdd2010_algebra with 4 concurrency settings τ = 32, 38,
+40, 44. The first column shows the RMSE of training set, the second column shows the RMSE
+of test set and the last row shows the gradient variance, i.e., E‖(npt
+it
+)−1∇fit (wt)−∇F (wt)‖2.
+16
+2 4 8 12
+Concurrency
+1.0
+1.5
+2.0
+2.5
+Sp
+ee
+du
+p
+w8a
+2 4 8 12
+Concurrency
+1.0
+1.5
+2.0
+2.5
+3.0
+Sp
+ee
+du
+p
+madelon
+ASGD SVRG-ASGD IS-ASGD
+32 38 40 44
+Concurrency
+5
+10
+15
+Sp
+ee
+du
+p
+kdda2010_algebra
+Figure 4: The scalability comparison between ASGD, SVRG-ASGD and IS-ASGD on w8a,
+madelon and kdd2010_algebra. The scalability curves of ASGD and IS-ASGD are close while
+for SVRG-ASGD, the scalability is significantly lower.
+5.2. Scalability
+Figure 4 shows the scalability results between the targeting algorithms. As
+can be seen that the scalability of SVRG-ASGD drops 79.7% in kdd2010_algebra
+to the utmost comparing to the baseline, i.e., ASGD, due to the additional
+computation of full-gradient and variance-reduced gradient vt at each iteration.
+Particularly, for kdd2010_algebra, the iteratively zero-setting of the local gra-
+dient buffer (for saving the calculation result of the variance-reduced-gradient)
+becomes another bottleneck since each local copy of vt has a size of approxi-
+mately 154MB and can not be parallelized since the code is already in thread
+kernel. It is doable to get rid of the local gradient buffer by aggregating every
+result of each thread to the global model directly. However such approximated
+scheme deteriorates the convergence bound significantly since the chances of
+conflict upgrade actually doubled. The consequent cache misses and bandwidth
+contention is very severe and further hurt the scalability. Such negative impact
+of scalability might not be that intolerable in relative small datasets, e.g., w8a
+and madelon while in large/huge-scale datasets such as kdda2010_algebra, the
+additional time cost due to the calculation of the full-gradient and variance-
+reduced-gradient vt is that much which makes SVRG-ASGD less attractive.
+On the other hand, IS-ASGD yields almost the same scalability with standard
+ASGD which is critical in the training of large/huge-scale datasets.
+From an empirical point of view, the convergence bound of IS-ASGD is ob-
+viously superior to ASGD and outperforms SVRG-ASGD in some datasets that
+are not extremely large. In large-scale datasets, e.g., kdd2010_algebra, the con-
+vergence bound of SVRG-ASGD is the most superior. Unfortunately perform-
+ing SVRG-ASGD training on large/huge-scale datasets is extremely slow and
+requires large capacity of main memory (It’s zero-setting or allocation/release
+becomes another performance bottleneck.) due to the calculation of full-gradient
+periodically. Since there is no free lunch, it is up to the users to balance their re-
+quirements of better convergence bound (both SVRG-ASGD and IS-ASGD are
+better than ASGD) or a higher scalability (SVRG-ASGD is drastically lower).
+17
+6. Conclusion
+In this paper we study the application of IS in ASGD algorithms and analy-
+sis its theoretical guarantee to achieve superior convergence bound than ASGD
+while maintaining high scalability. The motivation lies in the fact that conven-
+tional variance-reduced-gradient based VR algorithms such as SVRG which has
+been applied in ASGD (SVRG-ASGD) to achieve improved convergence bound
+is at the price of scalability due to its requirement of the full-gradient. With
+the emergence of ever-increasing large-scale dataset, the calculation of the full-
+gradient deteriorates the scalability of SVRG-ASGD even worse. Meanwhile,
+importance sampling, as another elegant and practical VR algorithm which can
+be implemented with no hurting of the scalability has not been studied in ASGD
+context yet. In considering of its advantage in maintaining the optimal scalabil-
+ity, we propose IS-ASGD as a practical algorithm that combines IS and ASGD.
+Our proposed IS-ASGD algorithm takes the advantage of IS to accelerates the
+convergence rate of ASGD and preserves the same scalability which is critical
+in large-scale training. By following a serialized form of convergence analysis,
+we prove that the proposed IS-ASGD achieves nearly linear speed up of IS-SGD
+(which is superior to SGD). The empirical evaluation conducted on datasets
+with relative small to extremely large dimensionality confirms the effectiveness
+of IS-ASGD in achieving superior convergence bound of ASGD with no hurting
+of the scalability at all. Comparing to SVRG-ASGD, the convergence bound
+of IS-ASGD is worse in some cases especially in dataset that is large-scale, e.g,
+kdd2010. However, as we emphasized above, the improvement of the conver-
+gence bound of SVRG-ASGD is achieved with the price of drastically decrease
+of scalability which is much severer in large-scale datasets. After all, we can
+achieve superior convergence bound by using IS in ASGD with no hurting of
+the scalability which is critical in large-scale datasets. We consider IS-ASGD
+as an effective and practical algorithm for accelerating large-scale asynchronous
+stochastic optimization problems.
+Further researches may include the application of IS-ASGD on distributed
+systems which has higher latency and is bandwidth sensitive. In such systems,
+the calculation of the full-gradient may be even much more slow since the syn-
+chronization of the full-gradient is quite bandwidth consuming and consequently
+incurs high latency especially in large-scale problems. On the other hand, cur-
+rent IS-ASGD algorithm requires full copy of the dataset on each node otherwise
+the sampling is biased. The study on how local sampling, i.e., the IS is per-
+formed on part of (disjoint) the data on each node would affect the effectiveness
+of IS-ASGD would be interesting and worthy studying.
+ACKNOWLEDGMENT
+The first author thank Professor Guihai Chen for helpful suggestions, Profes-
+sor Xiaofeng Gao and Weichen Li for critical readings of the original version of
+the paper, Jun Ye from MLT Group of Intel Asia R&D. for necessary resources
+and suggestions.
+18
+References
+References
+[1] A. S. M. Zinkevich, M. Weimer, L. Li., Parallelized stochastic gradient
+descent., in: Advances in Neural Information Processing Systems, 2010,
+pp. 2737–2745.
+[2] M. Li, D. G. Andersen, A. J. Smola, K. Yu, Communication efficient dis-
+tributed machine learning with the parameter server, in: Advances in Neu-
+ral Information Processing Systems, 2014, pp. 19–27.
+[3] A. J. S. J. Langford, M. Zinkevich., Slow learners are fast., in: Advances
+in Neural Information Processing Systems, 2009, pp. 2737–2745.
+[4] R. Gemulla, E. Nijkamp, P. J. Haas, Y. Sismanis, Large-scale matrix fac-
+torization with distributed stochastic gradient descent, in: Proceedings of
+the 17th ACM SIGKDD international conference on Knowledge discovery
+and data mining, ACM, 2011, pp. 69–77.
+[5] B. Recht, C. Ré, Parallel stochastic gradient algorithms for large-scale ma-
+trix completion, Mathematical Programming Computation 5 (2) (2013)
+201–226.
+[6] A. A. J. Duchi, M. J. Wainwright., Distributed dual averaging in networks.,
+in: Advances in Neural Information Processing Systems, 2010, pp. 2737–
+2745.
+[7] J. Alspector, R. Meir, B. Yuhas, A. Jayakumar, D. Lippe, A parallel gradi-
+ent descent method for learning in analog vlsi neural networks, in: Advances
+in neural information processing systems, 1993, pp. 836–844.
+[8] J. Tsitsiklis, D. Bertsekas, M. Athans, Distributed asynchronous determin-
+istic and stochastic gradient optimization algorithms, IEEE transactions
+on automatic control 31 (9) (1986) 803–812.
+[9] M. Vorontsov, G. Carhart, J. Ricklin, Adaptive phase-distortion correc-
+tion based on parallel gradient-descent optimization, Optics letters 22 (12)
+(1997) 907–909.
+[10] A. Agarwal, J. C. Duchi., Distributed delayed stochastic optimization., in:
+Advances in Neural Information Processing Systems, 2011, pp. 873–881.
+[11] O. S. O. Dekel, R. Gilad-Bachrach, L. Xiao., Optimal distributed online
+prediction using minibatches., in: The Journal of Machine Learning Re-
+search 13., Vol. 1.
+[12] A. J. S. M. Li, D. G. Andersen, K. Yu., Communication efficient distributed
+machine learning with the parameter server., in: Advances in Neural Infor-
+mation Processing Systems, 2014, pp. 19–27.
+19
+[13] D. B. A. Nedic, V. Borkar., Distributed asynchronous incremental sub-
+gradient methods., in: Inherently Parallel Algorithms in Feasibility and
+Optimization and their Applications, Vol. 8, 2001, pp. 318–407.
+[14] A. Nedic, A. Ozdaglar., Distributed subgradient methods for multi-agent
+optimization., in: IEEE Transactions on Automatic Control., Vol. 54, 2009,
+pp. 48–61.
+[15] A. N. S. S. Ram, V. V. Veeravalli., Distributed stochastic subgradient pro-
+jection algorithms for convex optimization., in: Journal of Optimization
+Theory and Applications, Vol. 3, 2010, pp. 516–545.
+[16] S. Zhang, C. Zhang, Z. You, R. Zheng, B. Xu, Asynchronous stochastic
+gradient descent for dnn training, in: Acoustics, Speech and Signal Pro-
+cessing (ICASSP), 2013 IEEE International Conference on, IEEE, 2013,
+pp. 6660–6663.
+[17] G. Heigold, E. McDermott, V. Vanhoucke, A. Senior, M. Bacchiani, Asyn-
+chronous stochastic optimization for sequence training of deep neural net-
+works, in: Acoustics, Speech and Signal Processing (ICASSP), 2014 IEEE
+International Conference on, IEEE, 2014, pp. 5587–5591.
+[18] O. Shamir, N. Srebro., On distributed stochastic optimization and learn-
+ing., in: Proceedings of the 52nd Annual Allerton Conference on Commu-
+nication, Control, and Computing, Curran Associates, Inc., 2014.
+[19] B. Recht, C. Re, S. Wright, F. Niu, Hogwild: A lock-free approach to par-
+allelizing stochastic gradient descent, in: Advances in Neural Information
+Processing Systems, 2011, pp. 693–701.
+[20] J. T. Ben Recht, Christopher Re, V. Bittorf., Factoring nonnegative matri-
+ces with linear programs., in: Advances in Neural Information Processing
+Systems, 2012, pp. 1214–1222.
+[21] Y.-C. J. Yong Zhuang, Wei-Sheng Chin, C.-J. Lin., A fast parallel sgd for
+matrix factorization in shared memory systems., in: Proceedings of the 7th
+ACM conference on Recommender systems, 2013, pp. 249–256.
+[22] C.-J. H. S. V. Hyokun Yun, Hsiang-Fu Yu, I. Dhillon., Nomad: Non-locking,
+stochastic multi-machine algorithm for asynchronous and decentralized ma-
+trix completion., in: arXiv preprint arXiv:1312.0193, 2013.
+[23] M. I. J. John Duchi, B. McMahan., Estimation, optimization, and paral-
+lelism when data is sparse., in: Advances in Neural Information Processing
+Systems, 2013, pp. 2832–2840.
+[24] H.-F. Y. Cho-Jui Hsieh, I. S. Dhillon., Passcode: Parallel asynchronous
+stochastic dual co-ordinate descent., in: arXiv preprint arXiv:1504.01365,
+2015.
+20
+[25] Y. Zhuang, W.-S. Chin, Y.-C. Juan, C.-J. Lin, A fast parallel sgd for matrix
+factorization in shared memory systems, in: Proceedings of the 7th ACM
+conference on Recommender systems, ACM, 2013, pp. 249–256.
+[26] F. Petroni, L. Querzoni, Gasgd: stochastic gradient descent for distributed
+asynchronous matrix completion via graph partitioning., in: Proc. ACM
+Conf. on Recommender Systems, 2014, pp. 241–248.
+[27] L. Xiao, T. Zhang., A proximal stochastic gradient method with progressive
+variance reduction., in: SIAM Journal on Optimization., Vol. 24, 2014, pp.
+2057–2075.
+[28] S. De, T. Goldstein, Efficient distributed sgd with variance reduction, in:
+Data Mining (ICDM), 2016 IEEE 16th International Conference on, IEEE,
+2016, pp. 111–120.
+[29] P. Richtarik, M. Takac., Iteration complexity of randomized block-
+coordinate descent methods for minimizing a composite function., in:
+Math. Program., 2012, pp. 1–38.
+[30] L. Y. Tat, A. Sidford., Efficient accelerated coordinate descent methods and
+faster algorithms for solving linear systems., in: Foundations of Computer
+Science (FOCS), 2013 IEEE 54th Annual Symposium on., 2012, pp. 341–
+362.
+[31] H. Xi, M. Takáč., Dual free sdca for empirical risk minimization with adap-
+tive probabilities., in: arXiv preprint arXiv:1510.06684, 2015.
+[32] Z. Q. Csiba Dominik, P. Richtárik., Stochastic dual coordinate ascent with
+adaptive probabilities., in: arXiv preprint arXiv:1502.08053, 2015.
+[33] C. Dominik, P. Richtárik., Primal method for erm with flexible
+mini-batching schemes and non-convex losses., in: arXiv preprint
+arXiv:1506.02227, 2015.
+[34] A. S. C. C. Alain G., Lamb, B. Y., Variance reduction in sgd by distributed
+importance sampling., in: Computer Science., Vol. 22, 2015, pp. 341–362.
+[35] S.-Y. Zhao, W.-J. Li, Fast asynchronous parallel stochastic gradient de-
+scent: A lock-free approach with convergence guarantee, in: Proceedings
+of the Thirtieth AAAI Conference on Artificial Intelligence, 2016, pp. 2379–
+2385.
+[36] Y. L. Xiangru Lian, Yijun Huang, J. Liu, Asynchronous parallel stochastic
+gradient for nonconvex optimization, in: Advances in Neural Information
+Processing Systems, 2015, pp. 2737–2745.
+[37] K. O. Christopher De Sa, Ce Zhang, C. Re, Taming the wild: A unified
+analysis of hogwild!-style algorithms, in: Advances in Neural Information
+Processing Systems, 2015, pp. 2656–2664.
+21
+[38] S. J. R. C. B. V. Liu, J.; Wright, S. Sridhar, An asynchronous parallel
+stochastic coordinate descent algorithm., in: Journal of Machine Learning
+Research 16., 2015, pp. 285–322.
+[39] R. Johnson, T. Zhang, Accelerating stochastic gradient descent using pre-
+dictive variance reduction, in: Advances in Neural Information Processing
+Systems, 2013, pp. 315–323.
+[40] A. Defazio, F. Bach, S. Lacoste-Julien, Saga: A fast incremental gradi-
+ent method with support for non-strongly convex composite objectives, in:
+Advances in Neural Information Processing Systems, 2014, pp. 1646–1654.
+[41] R. P. Konecný J, Qu Z, S2cd: Semi-stochastic coordinate descent, in:
+NIPS Optimization in Machine Learning workshop, Curran Associates,
+Inc., 2014.
+[42] N. L. Roux, M. Schmidt, F. R. Bach, A stochastic gradient method with
+an exponential convergence rate for finite training sets, in: Advances in
+Neural Information Processing Systems, 2012, pp. 2663–2671.
+[43] S. J. Reddi, A. Hefny, S. Sra, B. Poczos, A. J. Smola, On variance reduc-
+tion in stochastic gradient descent and its asynchronous variants, in: Ad-
+vances in Neural Information Processing Systems 28, Curran Associates,
+Inc., 2015, pp. 2647–2655.
+[44] C. Fang, Z. Lin, Parallel asynchronous stochastic variance reduction for
+nonconvex optimization, in: Proceedings of the Thirty-First AAAI Confer-
+ence on Artificial Intelligence, 2017, pp. 794–800.
+[45] P. Zhao, T. Zhang., Stochastic optimization with importance sampling for
+regularized loss minimization., in: Proceedings of the 32nd International
+Conference on Machine Learning., 2015.
+[46] T. Zhang, R. EDU, Stochastic optimization with importance sampling for
+regularized loss minimization.
+[47] T.Strohmer, R. Vershynin., A randomized kaczmarz algorithm with expo-
+nential convergence, in: The Journal of Fourier Analysis and Applications.,
+Vol. 2, 2009, pp. 262–278.
+[48] D. Needell, R. Ward, N. Srebro, Stochastic gradient descent, weighted sam-
+pling, and the randomized kaczmarz algorithm, in: Advances in Neural
+Information Processing Systems, Curran Associates, Inc., 2014, pp. 1017–
+1025.
+[49] D. Csiba, P. Richtárik, Importance sampling for minibatches, arXiv
+preprint arXiv:1602.02283.
+[50] E. Moulines, F. R. Bach, Non-asymptotic analysis of stochastic approxima-
+tion algorithms for machine learning, in: Advances in Neural Information
+Processing Systems, Curran Associates, Inc., 2011, pp. 451–459.
+22
+[51] D. P. B. R. K. R. Horia Mania, Xinghao Pan, M. I. Jordan., Perturbed it-
+erate analysis for asynchronous stochastic optimization., in: arXiv preprint
+arXiv:1507.06970, 2015.
+23
+

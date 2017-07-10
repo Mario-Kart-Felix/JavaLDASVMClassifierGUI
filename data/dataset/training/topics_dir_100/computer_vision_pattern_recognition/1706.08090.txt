@@ -1,0 +1,875 @@
+Count-Based Exploration in Feature Space for Reinforcement Learning∗
+Jarryd Martin, Suraj Narayanan S., Tom Everitt, Marcus Hutter
+Research School of Computer Science, Australian National University, Canberra
+jarrydmartinx@gmail.com, surajx@gmail.com, tom.everitt@anu.edu.au, marcus.hutter@anu.edu.au
+Abstract
+We introduce a new count-based optimistic ex-
+ploration algorithm for reinforcement learning
+(RL) that is feasible in environments with high-
+dimensional state-action spaces. The success of
+RL algorithms in these domains depends crucially
+on generalisation from limited training experi-
+ence. Function approximation techniques enable
+RL agents to generalise in order to estimate the
+value of unvisited states, but at present few methods
+enable generalisation regarding uncertainty. This
+has prevented the combination of scalable RL al-
+gorithms with efficient exploration strategies that
+drive the agent to reduce its uncertainty. We
+present a new method for computing a generalised
+state visit-count, which allows the agent to esti-
+mate the uncertainty associated with any state. Our
+φ-pseudocount achieves generalisation by exploit-
+ing the same feature representation of the state
+space that is used for value function approximation.
+States that have less frequently observed features
+are deemed more uncertain. The φ-Exploration-
+Bonus algorithm rewards the agent for exploring
+in feature space rather than in the untransformed
+state space. The method is simpler and less compu-
+tationally expensive than some previous proposals,
+and achieves near state-of-the-art results on high-
+dimensional RL benchmarks.
+1 Introduction
+Reinforcement learning (RL) methods have recently enjoyed
+widely publicised success in domains that once seemed far
+beyond their reach [Mnih et al., 2015]. Much of this progress
+is due to the application of modern function approximation
+techniques to the problem of policy evaluation for Markov
+Decision Processes (MDPs) [Sutton and Barto, 1998]. These
+techniques address a key shortcoming of tabular MDP solu-
+tion methods: their inability to generalise what is learnt from
+one context to another. This sort of generalisation is crucial if
+the state-action space of the MDP is large, because the agent
+∗This work was supported in part by ARC DP150104590.
+typically only visits a small subset of that space during train-
+ing.
+Comparatively little progress has been made on the prob-
+lem of efficient exploration in large domains. Even algo-
+rithms that use sophisticated nonlinear methods for policy
+evaluation tend to use very old, inefficient exploration tech-
+niques, such as the -greedy strategy [van Hasselt et al.,
+2016b; Mnih et al., 2016; Nair et al., 2015]. There are more
+efficient tabular count-based exploration algorithms for finite
+MDPs, which drive the agent to reduce its uncertainty by vis-
+iting states that have low visit-counts [Strehl and Littman,
+2008]. However, these algorithms are often ineffective in
+MDPs with high-dimensional state-action spaces, because
+most states are never visited during training, and the visit-
+count remains at zero nearly everywhere.
+Count-based exploration algorithms have only very re-
+cently been successfully adapted for these large problems
+[Bellemare et al., 2016; Tang et al., 2016]. Just as function
+approximation techniques achieve generalisation across the
+state space regarding value, these algorithms achieve gener-
+alisation regarding uncertainty. The breakthrough has been
+the development of generalised state visit-counts, which are
+larger for states that are more similar to visited states, and
+which can be nonzero for unvisited states. The key challenge
+is to compute an appropriate similarity measure in an effi-
+cient way, such that these exploration methods can be com-
+bined with scalable RL algorithms. It soon becomes infea-
+sible, for example, to do so by storing the entire history of
+visited states and comparing each new state to those in the
+history. The most promising proposals instead compute gen-
+eralised counts from a compressed representation of the his-
+tory of visited states – for example, by constructing a visit-
+density model over the state space and deriving a “pseudo-
+count” [Bellemare et al., 2016; Ostrovski et al., 2017], or by
+using locality-sensitive hashing to cluster states and counting
+the occurrences in each cluster [Tang et al., 2016].
+This paper presents a new count-based exploration algo-
+rithm that is feasible in environments with large state-action
+spaces. It can be combined with any value-based RL al-
+gorithm that uses linear function approximation (LFA). Our
+principal contribution is a new method for computing gen-
+eralised visit-counts. Following [Bellemare et al., 2016],
+we construct a visit-density model in order to measure the
+similarity between states. Our approach departs from theirs
+ar
+X
+iv
+:1
+70
+6.
+08
+09
+0v
+1 
+ [
+cs
+.A
+I]
+  2
+5 
+Ju
+n 
+20
+17
+in that we do not construct our density model over the raw
+state space. Instead, we exploit the feature map that is used
+for value function approximation, and construct a density
+model over the transformed feature space. This model as-
+signs higher probability to state feature vectors that share
+features with visited states. Generalised visit-counts are then
+computed from these probabilities; states with frequently ob-
+served features are assigned higher counts. These counts
+serve as a measure of the uncertainty associated with a state.
+Exploration bonuses are then computed from these counts in
+order to encourage the agent to visit regions of the state-space
+with less familiar features.
+Our density model can be trivially derived from any fea-
+ture map used for LFA, regardless of the application domain,
+and requires little or no additional design. In contrast to ex-
+isting algorithms, there is no need to perform a special di-
+mensionality reduction of the state space in order to com-
+pute our generalised visit-counts. Our method uses the same
+lower-dimensional feature representation to estimate value
+and to estimate uncertainty. This makes it simpler to im-
+plement and less computationally expensive than some exist-
+ing proposals. Our evaluation demonstrates that this simple
+approach achieves near state-of-the-art performance on high-
+dimensional RL benchmarks.
+2 Background and Related Work
+2.1 Reinforcement Learning
+The reinforcement learning (RL) problem formalises the
+task of learning from interaction to achieve a goal [Sut-
+ton and Barto, 1998]. It is usually formulated as an MDP
+〈S,A,P,R, γ〉, where S is the set of states of the environ-
+ment, A is the set of available actions, P : (S × A) × S →
+[0, 1] is the state transition distribution,R : (S×A)×S → R
+is the reward function, and γ is the discount factor. The agent
+is formally a policy π : S → A that maps a state to an action.
+At timestep t, the agent is in a state st ∈ S, receives a re-
+ward rt, and takes an action at ∈ A. We seek a policy π that
+maximises the expected sum of future rewards, or value. The
+action-valueQπ(s, a) of a state-action pair (s, a) under a pol-
+icy π is the expected discounted sum of future rewards, given
+that the agent takes action a from state s, and follows π there-
+after: Qπ(s, a) = Eπ
+[∑∞
+k=0 γ
+krt+k+1 | st = s, at = a
+]
+.
+RL methods that compute a value function are called value-
+based methods. Tabular methods store the value function as a
+table having one entry for each state(-action). This represen-
+tation of the state space does not have sufficient structure to
+permit generalisation based on the similarity between states.
+Function approximation methods achieve generalisation by
+approximating the value function by a parameterised func-
+tional form. In LFA the approximate action-value function
+Q̂πt (s, a) = θ
+>
+t φ(s, a) is a linear combination of state-action
+features, where φ : S×A → T ⊆ RM is anM -dimensional
+feature map and θt ∈ RM is a parameter vector.
+2.2 Count-Based Exploration and Optimism
+Since the true transition and reward distributions P and R
+are unknown to the agent, it must explore the environment
+to gather more information and reduce its uncertainty. At the
+same time, it must exploit its current information to maximise
+expected cumulative reward. This tradeoff between explo-
+ration and exploitation is a fundamental problem in RL.
+Many of the exploration algorithms that enjoy strong the-
+oretical guarantees implement the ‘optimism in the face of
+uncertainty’ (OFU) heuristic [Strehl et al., 2009]. Most are
+tabular and count-based in that they compute exploration
+bonuses from a table of state(-action) visit counts. These
+bonuses are added to the estimated state/action value. Lower
+counts entail higher bonuses, so the agent is effectively opti-
+mistic about the value of less frequently visited regions of the
+environment. OFU algorithms are more efficient than random
+strategies like -greedy because the agent avoids actions that
+yield neither large rewards nor large reductions in uncertainty
+[Osband et al., 2016b].
+One of the best known is the UCB1 bandit algorithm,
+which selects an action a that maximises an upper confidence
+bound Q̂t(a) +
+√
+2 log t
+N(a) , where Q̂t(a) is the estimated mean
+reward and N(a) is the visit-count [Lai and Robbins, 1985].
+The dependence of the bonus term on the inverse square-
+root of the visit-count is justified using Chernoff bounds. In
+the MDP setting, the tabular OFU algorithm most closely
+resembling our method is Model-Based Interval Estimation
+with Exploration Bonuses (MBIE-EB) [Strehl and Littman,
+2008].1 Empirical estimates P̂ and R̂ of the transition and
+reward functions are maintained, and R̂(s, a) is augmented
+with a bonus term β√
+N(s,a)
+, where N(s, a) is the state-action
+visit-count, and β ∈ R is a theoretically derived constant. The
+Bellman optimality equation for the augmented action-value
+function is Q̃π(s, a) = R̂(s, a) + β√
+N(s,a)
++ γ
+∑
+s′ P̂(s′ |
+s, a)maxa′∈A Q̃
+π(s′, a′). Here the dependence of the bonus
+on the inverse square-root of the visit-count is provably opti-
+mal [Kolter and Ng, 2009]. This equation can be solved using
+any MDP solution method.
+2.3 Exploration in Large MDPs
+While tabular OFU algorithms perform well in practice on
+small MDPs [Strehl and Littman, 2004], their sample com-
+plexity becomes prohibitive for larger problems [Kakade,
+2003]. MBIE-EB, for example, has a sample complexity
+bound of Õ
+( |S|2|A|
+3(1−γ)6
+)
+. In the high-dimensional setting –
+where the agent cannot hope to visit every state during train-
+ing – this bound offers no guarantee that the trained agent will
+perform well.
+Several very recent extensions of count-based explo-
+ration methods have produced impressive results on high-
+dimensional RL benchmarks. These algorithms closely re-
+semble MBIE-EB, but they substitute the state-action visit-
+count for a generalised count which quantifies the similarity
+of a state to previously visited states. Bellemare et. al. con-
+struct a Context Tree Switching (CTS) density model over the
+1To the best of our knowledge, the first work to use exploration
+bonuses in the MDP setting was the Dyna-Q+ algorithm, in which
+the bonus is a function of the recency of visits to a state, rather than
+the visit-count [Sutton, 1990].
+state space such that higher probability is assigned to states
+that are more similar to visited states [Bellemare et al., 2016;
+Veness et al., 2012]. A state pseudocount is then derived from
+this density. A subsequent extension of this work replaces the
+CTS density model with a neural network [Ostrovski et al.,
+2017]. Another recent proposal uses locality sensitive hash-
+ing (LSH) to cluster similar states, and the number of visited
+states in a cluster serves as a generalised visit-count [Tang et
+al., 2016]. As in the MBIE-EB algorithm, these counts are
+used to compute exploration bonuses. These three algorithms
+outperform random strategies, and are currently the leading
+exploration methods in large discrete domains where explo-
+ration is hard.
+3 Method
+Here we introduce the φ-Exploration Bonus (φ-EB) algo-
+rithm, which drives the agent to visit states about which it
+is uncertain. Following other optimistic count-based explo-
+ration algorithms, we use a (generalised) state visit-count in
+order to estimate the uncertainty associated with a state. A
+generalised count is a novelty measure that quantifies how
+dissimilar a state is from those already visited. Measuring
+novelty therefore involves choosing a similarity measure for
+states. Of course, states can be similar in myriad ways, but
+not all of these are relevant to solving the MDP. If the so-
+lution method used is value-based, then states should only
+be considered similar if they share the features that are de-
+terminative of value. This motivates us to construct a simi-
+larity measure that exploits the feature representation that is
+used for value function approximation. These features are ex-
+plicitly designed to be relevant for estimating value. If they
+were not, they would not permit a good approximation to the
+true value function. This sets our method apart from the ap-
+proaches described in section 2.3. They measure novelty with
+respect to a separate, exploration-specific representation of
+the state space, one that bears no relation to the value function
+or the reward structure of the MDP. We argue that measuring
+novelty in feature space is a simpler and more principled ap-
+proach, and hypothesise that more efficient exploration will
+result.
+3.1 A Visit-Density over Feature Space
+Our exploration method is designed for use with LFA, and
+measures novelty with respect to a fixed feature representa-
+tion of the state space. The challenge is to measure novelty
+without computing the distance between each new feature
+vector and those in the history. That approach becomes in-
+feasible because the cost of computing these distances grows
+with the size of the history.
+Our method constructs a density model over feature space
+that assigns higher probability to states that share more fea-
+tures with more frequently observed states. Let φ : S → T ⊆
+RM be the feature mapping from the state space into an M -
+dimensional feature space T . Let φt = φ(st) denote the state
+feature vector observed at time t. We denote the sequence of
+observed feature vectors after t timesteps by φ1:t ∈ T t, and
+denote the set of all finite sequences of feature vectors by T ∗.
+Let φ1:tφ denote the sequence where φ1:t is followed by φ.
+The i-th element of φ is denoted by φi, and the i-th element
+of φt is φt,i.
+Definition 1 (Feature Visit-Density). Let ρ : T ∗ × T →
+[0, 1] be a density model that maps a finite sequence of feature
+vectors φ1:t ∈ T ∗ to a probability distribution over T . The
+feature visit-density ρt(φ) at time t is the distribution over T
+that is returned by ρ after observing φ1:t.
+We construct our feature visit-density as a product of in-
+dependent factor distributions ρit(φi) over individual features
+φi ∈ U ⊆ R:
+ρt(φ) =
+M∏
+i=1
+ρit(φi)
+If U is countable we can use a count-based estimator for
+the factor models ρit(φi), such as the empirical estimator
+ρit(φi) =
+Nt(φi)
+t , where Nt(φi) is the number of times φi
+has occurred. In our implementation we use the Krichevsky-
+Trofimov (KT) estimator ρit(φi) =
+Nt(φi)+
+1
+2
+t+1 .
+This density model induces a similarity measure on the fea-
+ture space. Loosely speaking, feature vectors that share com-
+ponent features are deemed similar. This enables us to use
+ρt(φ) as a novelty measure for states, by comparing the fea-
+tures of newly observed states to those in the history. If φ(s)
+has more novel component features, ρt(φ) will be lower. By
+modelling the features as independent, and using count-based
+estimators as factor models, our method learns reasonable
+novelty estimates from very little data.
+Example. Suppose we use a 3-D binary feature map and that
+after 3 timesteps the history of observed feature vectors is
+φ1:3 = (0, 1, 0), (0, 1, 0), (0, 1, 0). Let us estimate the fea-
+ture visit densities of two unobserved feature vectors φ′ =
+(1, 1, 0), and φ′′ = (1, 0, 1). Using the KT estimator for the
+factor models, we have ρ3(φ′) = ρ13(1)·ρ23(1)·ρ33(0) = 18 ·
+7
+8 ·
+7
+8 ≈ 0.1, and ρ3(φ
+′′) = ρ13(1) ·ρ23(0) ·ρ33(1) = (18 )
+3 ≈ 0.002.
+Note that ρ3(φ′) > ρ3(φ′′) because the component features
+of φ′ are more similar to those in the history. As desired, our
+novelty measure generalises across the state space.
+3.2 The φ-pseudocount
+Here we adopt a recently proposed method for computing
+generalised visit-counts from density models [Bellemare et
+al., 2016; Ostrovski et al., 2017]. By analogy with these
+pseudocounts, we derive two φ-pseudocounts from our fea-
+ture visit-density.
+Definition 2 (φ-pseudocount and Naive φ-pseudocount). Let
+ρt(φ) be the feature visit-density after observing φ1:t. Let
+ρ′t(φ) denote the same density model after φ1:tφ has been
+observed.
+• The naive φ-pseudocount Ñφt (s) for a state s ∈ S at
+time t is
+Ñφt (s) = t · ρt(φ(s))
+• The φ-pseudocount N̂φt (s) for a state s ∈ S at time t is
+N̂φt (s) =
+ρt(φ(s))(1− ρ′t(φ(s)))
+ρ′t(φ(s))− ρt(φ(s))
+Empirically, N̂φt (s) is usually larger than Ñ
+φ
+t (s) and leads to
+better performance.2
+3.3 Reinforcement Learning with φ-EB
+Algorithm 1 Reinforcement Learning with LFA and φ-EB.
+Require: β, tend
+while t < tend do
+Observe φ(s), rt
+Compute ρt(φ) =
+∏M
+i ρ
+i
+t(φi)
+for i in {1,. . . ,M} do
+Update ρit+1 with observed φi
+end for
+Compute ρt+1(φ) =
+∏M
+i ρ
+i
+t+1(φi)
+Compute N̂φt (s) =
+ρt(φ)(1−ρt+1(φ))
+ρt+1(φ)−ρt(φ)
+ComputeRφt (s, a) =
+β√
+N̂φt (s)
+Set r+t = rt +R
+φ
+t (s, a)
+Pass φ(s), r+t to RL algorithm to update θt
+end while
+return θtend
+Following traditional count-based exploration algorithms,
+we drive optimistic exploration by computing a bonus from
+the φ-pseudocount.
+Definition 3 (φ-Exploration Bonus). Let β ∈ R be a free
+parameter. The φ-exploration bonus for a state-action pair
+(s, a) ∈ S ×A at time t is
+Rφt (s, a) =
+β√
+N̂φt (s)
+As in the MBIE-EB algorithm, this bonus is added to the
+reward rt. The agent is trained on the augmented reward
+r+t = rt + R
+φ
+t (s, a) using any value-based RL algorithm
+with LFA. At each timestep our algorithm performs updates
+for at most M estimators, one for each feature. The cost of
+our method is therefore independent of the size of the state-
+action space, and scales only in the number of features. If the
+feature vectors are sparse, we can maintain a single prototype
+estimator for all the features that have not yet been observed.
+Under these conditions our method scales only in the number
+of observed features.
+4 Theoretical Results
+Here we formalise the comments made in section 3.1 by prov-
+ing a bound that relates our pseudocount to an appropriate
+similarity measure. To simplify the analysis, we prove re-
+sults for the naive φ-exploration bonus Ñφt (s), though we ex-
+pect analogous results to hold for N̂φt (s) as well. We use the
+empirical estimator for the factor models in the visit-density.
+2The expression for N̂φt (s) is derived by letting it depend on an
+implicit total pseudocount n̂ that can be much larger than t, and
+assuming ρt(φ) =
+N̂
+φ
+t (s)
+n̂· , and ρ
+′
+t(φ) =
+N̂
+φ
+t (s)+1
+n̂+1
+[Bellemare et al.,
+2016].
+Since the feature set we use in our implementation is binary,
+our analysis assumes φ ∈ {0, 1}M . We begin by defining a
+similarity measure for binary feature vectors, and prove two
+lemmas.
+Definition 4 (Hamming Similarity for Binary Vectors). Let
+φ,φ′ ∈ {0, 1}M be M -length binary vectors. The Ham-
+ming similarity between φ and φ′ is Sim(φ,φ′) = 1 −
+1
+M ‖φ− φ
+′‖1.
+Note that Sim(φ,φ′) ∈ [0, 1] for all φ,φ′ ∈ {0, 1}M . The
+Hamming similarity is large if φ and φ′ share features (i.e.
+if the l1-distance between them is small). We now prove a
+lemma relating the joint probability of a feature vector to the
+sum of the probabilities of its factors.
+Lemma 1 (AM-GM Inequality and Factorised ρ). Let φ ∈
+{0, 1}M , and let ρt(φ) =
+∏M
+i=1 ρ
+i
+t(φi). Then
+√
+ρ(φ) ≤
+1
+M
+∑M
+i=1 ρ
+i
+t(φi).
+Proof. By the inequality of arithmetic and geometric
+means
+√
+ρ(φ) =
+√∏M
+i=1 ρ
+i
+t(φi) ≤
+M
+√∏M
+i=1 ρ
+i
+t(φi) ≤
+1
+M
+∑M
+i=1 ρ
+i
+t(φi)
+The following lemma relates the probability of an individual
+feature to its l1-distance from previously observed values.
+Lemma 2 (Feature Visit-Density and l1-distance). Let
+ρit(φi) =
+1
+tNt(φi). Then for all φi, φk,i ∈ {0, 1}, ρ
+i
+t(φi) =
+1
+t
+∑t
+k=1 1− |φi − φk,i|.
+Proof. Suppose φi = 0:
+ρit(0) = 1− ρit(1) = 1−
+1
+t
+t∑
+k=1
+φk,i
+=
+1
+t
+t∑
+k=1
+1− |0− φk,i| =
+1
+t
+t∑
+k=1
+1− |φi − φk,i|
+The φi = 1 case follows by an almost identical argument.
+The following theorem and its corollary are the major results
+of this section. These connect the Hamming similarity (to
+previously observed feature vectors) with both the feature
+visit-density and the φ-pseudocount. We show that a state
+which shares few features with those in the history will be as-
+signed low probability by our density model, and will there-
+fore have a low φ-pseudocount.
+Theorem 1 (Feature Visit-Density and Average Similarity).
+Let s ∈ S be a state with binary feature representation φ =
+φ(s) ∈ {0, 1}M , and let ρt(φ) =
+∏M
+i=1 ρ
+i
+t(φi) be its feature
+visit-density at time t. Then
+ρt(φ) ≤
+1
+t
+t∑
+k=1
+Sim(φ,φk)
+Proof.
+ρt(φ) ≤
+√
+ρt(φ)
+(a)
+≤ 1
+M
+M∑
+i=1
+ρit(φi)
+(b)
+=
+1
+M
+M∑
+i=1
+1
+t
+t∑
+k=1
+(
+1− |φi − φk,i|
+)
+=
+1
+t
+t∑
+k=1
+(
+1− 1
+M
+M∑
+i=1
+|φi − φk,i|
+)
+=
+1
+t
+t∑
+k=1
+(
+1− 1
+M
+‖φ− φk‖1
+)
+(c)
+=
+1
+t
+t∑
+k=1
+Sim(φ,φk)
+where (a) follows from Lemma 1, (b) from Lemma 2, and (c)
+from Definition 4.
+We immediately get a similar bound for the naive φ-
+pseudocount Ñφt (s).
+Corollary 1 (φ-pseudocount and Total Similarity).
+Ñφt (s) ≤
+t∑
+k=1
+Sim(φ,φk)
+Proof. Immediate from Theorem 1 and Definition 2.
+Ñφt (s) therefore captures an intuitive relation between nov-
+elty and similarity to visited states. By visiting a state that
+minimises the φ-pseudocount, an agent also minimises a
+lower bound on its Hamming similarity to previously visited
+states. As desired, we have a novelty measure that is closely
+related to the distances between states in feature space, but
+which obviates the cost of computing those distances directly.
+5 Empirical Evaluation
+Our evaluation is designed to answer the following research
+questions:
+• Is a novelty measure derived from the features used for
+LFA a good way to generalise state visit-counts?
+• Does φ-EB produce improvement across a range of en-
+vironments, or only if rewards are sparse?
+• Can φ-EB with LFA compete with the state-of-the-art in
+exploration and deep RL?
+5.1 Setup
+We evaluate our algorithm on five games from the Arcade
+Learning Environment (ALE), which has recently become a
+standard high-dimensional benchmark for RL [Bellemare et
+al., 2013]. The reward signal is computed from the game
+score. The raw state is a frame of video (a 160×210 array
+of 7-bit pixels). There are 18 available actions. The ALE is a
+particularly interesting testbed in our context, because the dif-
+ficulty of exploration varies greatly between games. Random
+strategies often work well, and it is in these games that Deep
+Q-Networks (DQN) with -greedy is able to achieve so-called
+human-level performance [Mnih et al., 2015]. In others, how-
+ever, DQN with -greedy does not improve upon a random
+policy, and its inability to explore efficiently is one of the key
+determinants of this failure [Osband et al., 2016a]. We chose
+five of these games where exploration is hard. Three of the
+chosen games have sparse rewards (Montezuma’s Revenge,
+Venture, Freeway) and two have dense rewards (Frostbite,
+Q*bert).3
+Evaluating agents in the ALE is computationally demand-
+ing. We chose to focus more resources on Montezuma’s
+Revenge and Venture, for two reasons: (1) we hypothesise
+that φ-EB will produce more improvement in sparse reward
+games, and (2) leading algorithms with which we seek to
+compare φ-EB have also focused on these games. We con-
+ducted five independent learning trials for Montezuma and
+Venture, and two trials for the remaining three games. All
+agents were trained for 100 million frames on the no-op met-
+ric [Bellemare et al., 2013]. Trained agents were then evalu-
+ated for 500 episodes; Table 1 reports the average evaluation
+score.
+We implement Algorithm 1 using Sarsa(λ) with replacing
+traces and LFA as our RL method, because it is less likely
+to diverge than Q-learning [Sutton and Barto, 1998]. To im-
+plement LFA in the ALE we use the Blob-PROST feature set
+presented in [Liang et al., 2016]. To date this is the best per-
+forming feature set for LFA in the ALE. The parameters for
+the Sarsa(λ) algorithm are set to the same values as in [Liang
+et al., 2016]. Hereafter we refer to our algorithm as Sarsa-
+φ-EB. To conduct a controlled investigation of the effective-
+ness of φ-EB, we also evaluate a baseline implementation of
+Sarsa(λ) with the same features but with -greedy exploration
+(which we denote Sarsa-). The same training and evaluation
+regime is used for both; learning curves are reported in Figure
+1.
+The β coefficient in the φ-exploration bonus was set to 0.05
+for all games, after a coarse parameter search. This search
+was performed once, across a range of ALE games, and a
+value was chosen for which the agent achieved good scores
+in most games.
+5.2 Results
+Comparison with -greedy Baseline
+In Montezuma’s Revenge, Sarsa- rarely leaves the first room.
+Its policy converges after an average of 20 million frames.
+Sarsa-φ-EB continues to improve throughout training, vis-
+iting up to 14 rooms. The largest improvement over the
+baseline occurs in Venture. Sarsa- fails to score, while
+Sarsa-φ-EB continues to improve throughout training. In
+Q*bert and Frostbite, the difference is less dramatic. These
+games have dense, well-shaped rewards that guide the agent’s
+path through state space and elide -greedy’s inefficiency.
+Nonetheless, Sarsa-φ-EB consistently outperforms Sarsa-
+throughout training so its cumulative reward is much higher.
+3Note that our experimental evaluation uses the stochastic ver-
+sion of the ALE [Bellemare et al., 2013].
+Figure 1: Average training scores for Sarsa-φ-EB and the baseline Sarsa-. Dashed lines are min/max scores. Shaded regions describe one
+standard deviation.
+In Freeway, Sarsa-φ-EB with β = 0.05 fails to match the
+performance of the baseline algorithm, but with β = 0.035 it
+performs better (Figure 1 shows the learning curve for the lat-
+ter). This sensitivity to the β parameter likely results from the
+large number of unique Blob-PROST features that are active
+in Freeway, many of which are not relevant for finding the op-
+timal policy. If β is too high the agent is content to stand still
+and receive exploration bonuses for observing new configura-
+tions of traffic. This accords with our hypothesis that efficient
+optimistic exploration should involve measuring novelty with
+respect to task-relevant features.
+In summary, Sarsa-φ-EB with β = 0.05 outperforms
+Sarsa- on all tested games except Freeway. Since both use
+the same feature set and RL algorithm, and differ only in their
+exploration policies, this is strong evidence that φ-EB pro-
+duces improvement over random exploration across a range
+of environments. This also supports our conjecture that us-
+ing the same features for value function approximation and
+novelty estimation is an appropriate way to generalise visit-
+counts to the high-dimensional setting.
+Comparison with Leading Algorithms
+Table 1 compares our evaluation scores to Double DQN
+(DDQN) [van Hasselt et al., 2016b], Double DQN with pseu-
+docount (DDQN-PC) [Bellemare et al., 2016], A3C+ [Belle-
+mare et al., 2016], DQN Pop-Art (DQN-PA) [van Hasselt et
+al., 2016a], Dueling Network (Dueling) [Wang et al., 2016],
+Gorila [Nair et al., 2015], DQN with Model Prediction Ex-
+ploration Bonuses (MP-EB) [Stadie et al., 2015], Trust Re-
+gion Policy Optimisation (TRPO) [Schulman et al., 2015],
+and TRPO-AE-SimHash (TRPO-Hash) [Tang et al., 2016].
+The most interesting comparisons for our purposes are with
+TRPO-Hash, DDQN-PC, A3C+, and MP-EB, because these
+algorithms all use exploration strategies that drive the agent
+to reduce its uncertainty. TRPO-Hash, DDQN-PC, and A3C+
+are count-based methods, MP-EB seeks high model predic-
+tion error.
+Our Sarsa-φ-EB algorithm achieves an average score of
+2745.4 on Montezuma: the second highest reported score.
+On this game it far outperforms every algorithm apart from
+DDQN-PC, despite only having trained for half the number
+of frames. Note that neither A3C+ nor TRPO-Hash achieves
+more than 200 points, despite their exploration strategies.
+On Venture Sarsa-φ-EB also achieves state-of-the-art per-
+formance. It achieves the third highest reported score de-
+spite its short training regime, and far outperforms A3C+
+and TRPO-Hash. DDQN-PC evaluation scores are not given
+for Venture, but reported learning curves suggest Sarsa-φ-EB
+performs much better here [Bellemare et al., 2016]. The per-
+formance of Sarsa-φ-EB in Frostbite also seems competitive
+given the shorter training regime. Nonlinear algorithms per-
+form better in Q*bert. In Freeway Sarsa-φ-EB fails to score
+any points, for reasons already discussed.
+6 Conclusion
+We have introduced the φ-Exploration Bonus method, a
+count-based optimistic exploration strategy that scales to
+high-dimensional environments. It is simpler to implement
+and less computationally demanding than some other propos-
+als. Our evaluation shows that it improves upon -greedy ex-
+ploration on a variety of games, and that it is even competitive
+with leading exploration techniques developed for deep RL.
+Unlike other methods, it does not require the design of an
+exploration-specific state representation, but rather exploits
+the features used in the approximate value function. We have
+Venture Montezuma’s Revenge Freeway Frostbite Q*bert
+Sarsa-φ-EB 1169.2 2745.4 0.0 2770.1 4111.8
+Sarsa- 0.0 399.5 29.9 1394.3 3895.3
+DDQN-PC N/A 3459 N/A N/A N/A
+A3C+ 0 142 27 507 15805
+TRPO-Hash 445 75 34 5214 N/A
+MP-EB N/A 0 12 380 N/A
+DDQN 98 0 33 1683 15088
+DQN-PA 1172 0 33 3469 5237
+Gorila 1245 4 12 605 10816
+TRPO 121 0 16 2869 7733
+Dueling 497 0 0 4672 19220
+Table 1: Average evaluation score for leading algorithms. Sarsa-φ-EB and Sarsa- were evaluated after 100M training frames on all games
+except Q*bert, for which they trained for 80M frames. DDQN-PC scores reflect evaluation after 100M training frames. The MP-EB agent
+was only trained for 20M frames. All other algorithms were evaluated after 200M frames. Leading scores are highlighted in bold.
+argued that computing novelty with respect to these task-
+relevant features is an efficient and principled way to gener-
+alise visit-counts for exploration. We conclude by noting that
+this reliance on the feature representation used for LFA is also
+a limitation. It is not obvious how a method like ours could
+be combined with the nonlinear function approximation tech-
+niques that have driven recent progress in RL. We hope the
+success of our simple method will inspire future work in this
+direction.
+References
+[Bellemare et al., 2013] Marc G Bellemare, Yavar Naddaf,
+Joel Veness, and Michael Bowling. The arcade learning
+environment: An evaluation platform for general agents.
+Journal of Artificial Intelligence Research, 47:253–279,
+2013.
+[Bellemare et al., 2016] Marc G. Bellemare, Sriram Srini-
+vasan, Georg Ostrovski, Tom Schaul, David Saxton, and
+Rémi Munos. Unifying count-based exploration and in-
+trinsic motivation. CoRR, abs/1606.01868, 2016.
+[Kakade, 2003] Sham Machandranath Kakade. On the Sam-
+ple Complexity of Reinforcement Learning. PhD thesis,
+University College London, 2003.
+[Kolter and Ng, 2009] J Zico Kolter and Andrew Y Ng.
+Near-Bayesian exploration in polynomial time. Interna-
+tional Conference on Machine Learning, pages 513–520,
+2009.
+[Lai and Robbins, 1985] Tze Leung Lai and Herbert Rob-
+bins. Asymptotically efficient adaptive allocation rules.
+Advances in Applied Mathematics, 6(1):4–22, 1985.
+[Liang et al., 2016] Yitao Liang, Marlos C Machado, Erik
+Talvitie, and Michael Bowling. State of the art control
+of Atari games using shallow reinforcement learning. In
+Autonomous Agents and Multi-Agent Systems, 2016.
+[Mnih et al., 2015] Volodymyr Mnih, Koray Kavukcuoglu,
+David Silver, Andrei a Rusu, Joel Veness, Marc G Belle-
+mare, Alex Graves, Martin Riedmiller, Andreas K Fid-
+jeland, Georg Ostrovski, Stig Petersen, Charles Beattie,
+Amir Sadik, Ioannis Antonoglou, Helen King, Dharshan
+Kumaran, Daan Wierstra, Shane Legg, and Demis Has-
+sabis. Human-level control through deep reinforcement
+learning. Nature, 518(7540):529–533, 2015.
+[Mnih et al., 2016] Volodymyr Mnih, Adrià Puigdomènech
+Badia, Mehdi Mirza, Alex Graves, Timothy P Lillicrap,
+Tim Harley, David Silver, and Koray Kavukcuoglu. Asyn-
+chronous methods for deep reinforcement learning. In In-
+ternational Conference on Machine Learning, 2016.
+[Nair et al., 2015] Arun Nair, Praveen Srinivasan, Sam
+Blackwell, Cagdas Alcicek, Rory Fearon, Alessandro De
+Maria, Vedavyas Panneershelvam, Mustafa Suleyman,
+Charles Beattie, Stig Petersen, Shane Legg, Volodymyr
+Mnih, Koray Kavukcuoglu, and David Silver. Massively
+parallel methods for deep reinforcement learning. CoRR,
+abs/1507.04296, 2015.
+[Osband et al., 2016a] Ian Osband, Charles Blundell,
+Alexander Pritzel, and Benjamin Van Roy. Deep explo-
+ration via bootstrapped DQN. CoRR, abs/1602.04621,
+2016.
+[Osband et al., 2016b] Ian Osband, Benjamin Van Roy, and
+Zheng Wen. Generalization and exploration via random-
+ized value functions. International Conference on Ma-
+chine Learning, pages 1–26, 2016.
+[Ostrovski et al., 2017] Georg Ostrovski, Marc G. Belle-
+mare, Aäron van den Oord, and Rémi Munos. Count-
+based exploration with neural density models. CoRR,
+abs/1703.01310, 2017.
+[Schulman et al., 2015] John Schulman, Sergey Levine,
+Philipp Moritz, Michael I. Jordan, and Pieter Abbeel. Trust
+region policy optimization. CoRR, abs/1502.05477, 2015.
+[Stadie et al., 2015] Bradly C. Stadie, Sergey Levine, and
+Pieter Abbeel. Incentivizing exploration in reinforce-
+ment learning with deep predictive models. CoRR,
+abs/1507.00814, 2015.
+[Strehl and Littman, 2004] A. L. Strehl and M. L. Littman.
+An empirical evaluation of interval estimation for Markov
+decision processes. In 16th IEEE International Conference
+on Tools with Artificial Intelligence, pages 128–135, 2004.
+[Strehl and Littman, 2008] Alexander L Strehl and
+Michael L Littman. An analysis of model-based in-
+terval estimation for Markov decision processes. Journal
+of Computer and System Sciences, 74(8):1309–1331,
+2008.
+[Strehl et al., 2009] Alexander L Strehl, Lihong Li, and
+Michael L Littman. Reinforcement Learning in Finite
+MDPs : PAC Analysis. Journal of Machine Learning Re-
+search, 10:2413–2444, 2009.
+[Sutton and Barto, 1998] R.S. Sutton and A.G. Barto. Rein-
+forcement Learning: An Introduction. IEEE Transactions
+on Neural Networks, 9(5):1054–1054, 1998.
+[Sutton, 1990] Richard S. Sutton. Integrated architecture for
+learning, planning, and reacting based on approximating
+dynamic programming. In International Conference on
+Machine Learning, pages 216–224, 1990.
+[Tang et al., 2016] Haoran Tang, Rein Houthooft, Davis
+Foote, Adam Stooke, Xi Chen, Yan Duan, John Schulman,
+Filip De Turck, and Pieter Abbeel. #Exploration: A study
+of count-based exploration for deep reinforcement learn-
+ing. CoRR, abs/1611.04717, 2016.
+[van Hasselt et al., 2016a] Hado van Hasselt, Arthur Guez,
+Matteo Hessel, and David Silver. Learning values across
+many orders of magnitude. CoRR, abs/1602.07714, 2016.
+[van Hasselt et al., 2016b] Hado van Hasselt, Arthur Guez,
+and David Silver. Deep reinforcement learning with dou-
+ble Q-learning. In AAAI, 2016.
+[Veness et al., 2012] Joel Veness, Kee Siong Ng, Marcus
+Hutter, and Michael Bowling. Context tree switching.
+In IEEE Data Compression Conference, pages 327–336,
+2012.
+[Wang et al., 2016] Ziyu Wang, Nando de Freitas, Tom
+Schaul, Matteo Hessel, Hado van Hasselt, and Marc Lanc-
+tot. Dueling network architectures for deep reinforcement
+learning. In International Conference on Machine Learn-
+ing, 2016.
+

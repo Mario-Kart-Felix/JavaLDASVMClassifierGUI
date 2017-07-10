@@ -1,0 +1,732 @@
+Relational Algebra for In-Database Process
+Mining
+Remco Dijkman1, Juntao Gao2, Paul Grefen1, and Arthur ter Hofstede3,1
+1 Eindhoven University of Technology, The Netherlands
+{r.m.dijkman|p.w.p.j.grefen}@tue.nl
+2 Northeast Petroleum University, China
+gjt@nepu.edu.cn
+3 Queensland University of Technology, Australia
+a.terhofstede@qut.edu.au
+Abstract. The execution logs that are used for process mining in prac-
+tice are often obtained by querying an operational database and storing
+the result in a flat file. Consequently, the data processing power of the
+database system cannot be used anymore for this information, leading
+to constrained flexibility in the definition of mining patterns and limited
+execution performance in mining large logs. Enabling process mining di-
+rectly on a database - instead of via intermediate storage in a flat file -
+therefore provides additional flexibility and efficiency. To help facilitate
+this ideal of in-database process mining, this paper formally defines a
+database operator that extracts the ‘directly follows’ relation from an
+operational database. This operator can both be used to do in-database
+process mining and to flexibly evaluate process mining related queries,
+such as: “which employee most frequently changes the ‘amount’ attribute
+of a case from one task to the next”. We define the operator using the
+well-known relational algebra that forms the formal underpinning of re-
+lational databases. We formally prove equivalence properties of the oper-
+ator that are useful for query optimization and present time-complexity
+properties of the operator. By doing so this paper formally defines the
+necessary relational algebraic elements of a ‘directly follows’ operator,
+which are required for implementation of such an operator in a DBMS.
+Keywords: process mining, relational algebra, formal methods
+1 Introduction
+Enabling process mining directly on an operational database or data warehouse
+presents new opportunities. It provides additional flexibility, because event logs
+can be constructed on-demand by writing an SQL query, even if they are dis-
+tributed over multiple tables, as is the case, for example, in SAP [17]. It even
+provides opportunities for fully flexible querying, allowing for the formulation of
+practically any process mining question. Moreover, process mining directly on
+a database leverages the proven technology of databases for efficiently handling
+ar
+X
+iv
+:1
+70
+6.
+08
+25
+9v
+1 
+ [
+cs
+.D
+B
+] 
+ 2
+6 
+Ju
+n 
+20
+17
+Table 1. Database table R that contains a log
+case activity start time end time case activity start time end time
+1 A 00:20 00:22 4 A 03:06 03:10
+1 B 02:04 02:08 4 B 05:04 05:09
+1 E 02:32 02:32 4 E 07:26 07:29
+2 A 02:15 02:20 5 A 03:40 03:44
+2 D 03:14 03:19 5 B 05:59 06:06
+2 E 05:06 05:07 5 E 07:49 07:52
+3 A 02:27 02:29 6 A 04:18 04:20
+3 D 04:17 04:20 6 C 07:08 07:12
+3 E 06:51 06:53 6 E 09:05 09:07
+large data collections in real time, which is one of the challenges identified in
+the process mining manifesto [1]. This can speed up process mining, especially
+when extremely large logs are going to be considered, such as call behavior of
+clients of a telecom provider, or driving behavior of cars on a road network.
+To illustrate the potential benefits of process mining on a database, Table 1
+shows a very simple event log as it could be stored in a database relation. In
+practice, such a log would contain thousands of events, as is the case for the
+well know BPI Challenge logs (e.g. [13]), and even millions of events in the
+examples of the telecom provider and the road network mentioned above. Table 1
+shows the activities that were performed in an organization, the (customer) case
+for which these activities were performed and the start and end time of the
+activities. Given such a relation, it is important in process mining to be able to
+retrieve the ‘directly follows’ relation, because this relation is the basis for many
+process mining techniques, including the alpha algorithm [4] (and its variants),
+the heuristic miner [22], and the fuzzy miner [16]. The directly follows relation
+retrieves the events that follow each other directly in some case. The SQL query
+that retrieves this relation from relation R in Table 1 is:
+SELECT DISTINCT a.activity, b.activity
+FROM R a, R b WHERE a.case = b.case AND
+a.end_time < b.end_time AND
+NOT EXISTS SELECT * FROM R c WHERE c.case = a.case AND
+a.end_time < c.end_time AND c.end_time < b.end_time;
+Another example query, is the query that returns the average waiting time before
+each activity:
+SELECT b.activity, average(b.start_time - a.end_time)
+FROM R a, R b WHERE a.case = b.case AND
+a.end_time < b.end_time AND
+NOT EXISTS SELECT * FROM R c WHERE c.case = a.case AND
+a.end_time < c.end_time AND c.end_time < b.end_time
+GROUP BY b.activity;
+These queries illustrate the challenges that arise when doing process mining
+directly on a database:
+1. The queries are inconvenient. Even a conceptually simple process mining
+request like ‘retrieve all directly follows relations between events’ is difficult
+to phrase in SQL.
+2. The queries are inefficient. The reason for this is that the ‘directly follows’
+relation that is at the heart of process mining requires a nested query (i.e.
+the ‘NOT EXISTS’ part) and nested queries are known to cause perfor-
+mance problems in database, irrespective of the quality of query optimiza-
+tion [18,10], This will be discussed in detail in Section 4.
+user
+process 
+mining tool
+DBMS
+log
+model
+DBMS
+user
+process 
+mining tool
+log
+model
+DBMS+
+user
+process 
+mining tool
+log
+model
+query query query
+(i) with intermediate storage (ii) with database connection (iii) with database operator
+other
+results
+ 
+Fig. 1. Strategies for process mining on a database
+Consequently, measures must be taken to make process mining - and in par-
+ticular extracting the ‘directly follows’ relation - feasible on relational databases.
+Figure 1 shows three possible strategies. Figure 1.i shows the current state of the
+art, in which a user constructs an SQL query to extract a log from the database.
+This log is written to disk (for example as a csv file) and then read again by a
+process mining tool for further processing. Consequently, the complete log must
+be read or written three times and there is some manual work involved in getting
+the log to and from disk. It is easy to imagine a process mining tool that does
+not need intermediate storage to disk. Such a tool would only need to read the
+log once and would not require manual intervention to get the log to and from
+disk. Figure 1.ii illustrates this strategy.
+This paper proposes a third strategy, in which the DBMS supports a native
+‘directly follows’ operator. This strategy has the benefit that it does not require
+intermediate storage on disk and that it facilitates flexible and convenient query-
+ing for process mining related information. In addition, it has the benefit that
+it leverages proven database technology, which can efficiently handle very large
+data sets in real time. To realize this strategy, the paper defines the ‘directly
+follows’ operator in relational algebraic form, by defining what it does, how it
+behaves with respect to other operators, and what its execution costs are. By
+doing so this paper formally defines the necessary relational algebraic elements
+of a ‘directly follows’ operator, which are required for implementation of such
+an operator in a DBMS.
+Against this background the remainder of this paper is structured as follows.
+Section 2 explains relational algebra as background for this paper. Section 3
+presents a relational algebraic ‘directly follows’ operator. Section 4 shows the
+computational cost of executing this operator and the potential effects of query
+optimization with respect to this operator. Finally, section 5 presents related
+work and section 6 the conclusions.
+2 Background
+Relational algebra is at the core of every relational database system. It is used
+to define the execution semantics of an SQL query and to define equivalence
+rules to determine which execution semantics (among a set of equivalent ones)
+is the most efficient to execute. Before we define a relational algebraic ‘directly
+follows’ operator, we provide background on these two topics.
+2.1 Relational Algebra
+In this section we briefly define the basic relational algebraic operators. We refer
+to the many textbooks on databases (e.g. [5]) for more detailed definitions.
+Definition 1 (Attribute, Schema, Relation). An attribute is a combination
+of a name and a domain of possible values. A schema is a set of attributes. Any
+two elements s1, s2 of schema s with s1 6= s2 have different names. A relation
+is a combination of a schema and a set of tuples. Each tuple in a relation maps
+attribute names from the schema of the relation to values from the corresponding
+domain.
+For example, let C be the domain of case identifiers, E be the domain of
+activities, and T be the time domain. The relation of Table 1 has the schema
+{case : C, activity : E, start time : T, end time : T} and the set of tuples
+{{case 7→ 1, activity 7→ A, start time 7→ 00:20, end time 7→ 00:22}, . . .}.
+In the remainder of this paper, we will also refer to R as the set of tuples of
+a relation R. For a relation with a schema that defines an attribute with name
+a, we will use ta to refer to the value of attribute a in tuple t.
+Definition 2 (Relational Algebra). Let R,S be relations with schema r, s.
+Furthermore, let a, b be attribute names, and φ a condition over attributes that
+is constructed using conjunction (∧), disjunction (∨), negation (¬), and binary
+conditions (>,≥,=, 6=,≤, <) over attributes and attribute values. We define the
+usual relational algebra operators:
+– Selection: σφR = {t|t ∈ R,φ(t)}, where φ(t) is derived from φ by replacing
+each attribute name a by its value in tuple t: ta. The schema of σφR is r.
+– Projection: πa,b,...R = {{a 7→ ta, b 7→ tb, . . .}|t ∈ R}. The schema of πa,b,...R
+is r restricted to the attributes with names a, b, . . ..
+Table 2. Example Relational Algebra Expressions
+σcase=1R πcaseR ρcase/idR
+case activity start time end time case id activity start time end time
+1 A 00:20 00:22 1 1 A 00:20 00:22
+1 B 02:04 02:08 2 1 B 02:04 02:08
+1 E 02:32 02:32 3 1 E 02:32 02:32
+. . . . . . . . . . . . . . .
+– Renaming: ρa/bR = R. The schema of ρa/bR is derived from r by replacing
+the name of attribute a by b. In the remainder of this paper, we will also use
+ρxR to represent prefixing all attributes of R with x.
+In addition, we define the usual set theoretic operators R∪S, R∩S, R−S. These
+operators have the usual set-theoretic interpretation, but they require that R and
+S have the same schema. We define the Cartesian product of R with schema
+{r1 : R1, r2 : R2, . . . , rn : Rn} and S with schema {s1 : S1, s2 : S2, . . . , sn : Sn}
+as R × S = {{r1 7→ tr1 , r2 7→ tr2 , . . . , rn 7→ trn , s1 7→ us1 , s2 7→ us2 , . . . , sm 7→
+usm}|t ∈ R, u ∈ S}. The schema of R× S is r ∪ s.
+Finally, a join operator is usually defined for the commonly used operator of
+joining tuples from two relations that have some property in common. The join
+operator is a shorthand for a combination of Cartesian product and selection:
+R ./φ S = σφR× S.
+Table 2 shows examples of the selection, projection, and renaming operators,
+applied to the relation in Table 1.
+2.2 Query Optimization
+There are a large number of proven relational algebraic equivalences that can
+be used to rewrite relational algebraic equations [5,21]. In the remainder of this
+paper, we use the following ones. Let R,S be tables, a, b, c be attributes, x, y be
+attribute values, φ, ψ be conditions, and θ be a binary condition (>,≥,=, 6=,≤
+, <). Then:
+σφ∧ψR = σφ(σψR) (1)
+σφ(σψR) = σψ(σφR) (2)
+R ./φ S = S ./φ R (3)
+(R ./φ S) ./ψ T = R ./φ (S ./ψ T ) (4)
+σψ(R ./φ S) = (σψR) ./φ S, if ψ only has attributes from R (5)
+σψ(R− S) = (σψR)− (σψS) (6)
+σaθx(ρb/aR) = ρb/a(σbθxR) (7)
+πa(ρb/aR) = ρb/a(πbR) (8)
+πa,b,...(σφR) = σφ(πa,b,...R), if φ only has attributes from a, b, . . . (9)
+πa,b,...(S ./φ R) = (πa,...R) ./φ (πb,...S), if a, b, . . . can be split over R,S (10)
+πa,b(πb,cR) = πbR (11)
+πa,...(πb,...R) = πb,...(πa,...R) (12)
+ρb/a(R ./bθc S) = (ρb/aR) ./aθc S, if a, b only in R (13)
+πRsR = R, if Rs has only attributes from R (14)
+πRs(R ./φ S) = R, if R ./φ S includes each tuple of R
+and Rs has exactly the attributes from R (15)
+(R− T ) ./aθb S = R ./aθb S − T ./aθb S (16)
+In practice these equivalences are used to generate alternative formulas that
+lead to the same result, but represent alternative execution strategies. For exam-
+ple, σψ(σφR× σθS) can be proven to be equivalent to σψ∧φ∧θ(R×S). However,
+σψ(σφR × σθS) represents the execution strategy in which we first execute the
+selections and then the Cartesian product, while σψ∧φ∧θ(R × S) represents the
+execution strategy where we first execute the Cartesian product and then the
+selection. The first execution strategy is much more efficient than the second,
+because it only requires the Cartesian product to be computed for a (small)
+subset of R and S.
+3 Relational Algebra for Process Mining
+This section defines the ‘directly follows’ relation as a relational algebraic op-
+erator. It also presents and proves equivalences for this operator that can be
+used for query optimization, similar to the equivalences that are presented in
+Section 2.2.
+3.1 Directly Follows Operator
+The directly follows operator retrieves events that directly follow each other in
+some case. For a database table Log that has a column c, which denotes the case
+identifier, and a column t, which denotes the completion timestamp of an event,
+we denote this operator as >c,t Log. For example, applying the operator to the
+example log from Table 1 (i.e. >case,end time Log) returns Table 3. Similar to
+the way in which the join operator is defined in terms of other relational algebra
+operators, we define the ‘directly follows’ operator in terms of the traditional
+relational algebra operators as follows.
+Definition 3 (Directly Follows Operator).
+>c,t Log =ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log
+− πAs((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+where As is the set of attributes that are in ρ↓Log or ρ↑Log.
+Table 3. Result of >case,end time Log
+↓case ↓activity ↓start time ↓end time ↑case ↑activity ↑start time ↑end time
+1 A 00:20 00:22 1 B 02:04 02:08
+1 B 02:04 02:08 1 E 02:32 02:32
+2 A 02:15 02:20 2 D 03:14 03:19
+2 D 03:14 03:19 2 E 05:06 05:07
+3 A 02:27 02:29 3 D 04:17 04:20
+3 D 04:17 04:20 3 E 06:51 06:53
+4 A 03:06 03:10 4 B 05:04 05:09
+4 B 05:04 05:09 4 E 07:26 07:29
+5 A 03:40 03:44 5 B 05:59 06:06
+5 B 05:59 06:06 5 E 07:49 07:52
+6 A 04:18 04:20 6 C 07:08 07:12
+6 C 07:08 07:12 6 E 09:05 09:07
+The directly follows operator can both be used in an algorithm for process
+mining that is based on it (or on ‘footprints’ which are derived from it [2]) and
+for flexible querying. Some example queries include:
+– The two activities that precede a rejection:
+π↑↑activity=reject >↑case,↑end time>case,end time Log
+– The activities in which the amount of a loan is changed:
+σ↑amount6=↓amount >↑case,↑end time Log
+– The resources that ever changed the amount of a loan:
+π↑resourceσ↑amount 6=↓amount >↑case,↑end time Log
+3.2 Directly Follows Query Optimization
+To facilitate query optimization for the directly follows operator, we must define
+how it behaves with respect to the other operators and prove that behavior. We
+present this behavior as propositions along with their proofs. In each of these
+propositions, we use a, b, c, t as attributes (where - as convention - we use c to
+denote the case identifier attribute and t to denote the time attribute), θ as a
+binary operator from the set {>,≥,=, 6=,≤, <}, and x as a value.
+The first proposition holds for case attributes and event attributes. We define
+case attributes as attributes that keep the same value for all events in a case,
+from the moment that they get a value. We define event attributes as attributes
+that have a value for at most one event in each case. Consequently, we can only
+use this proposition for optimizing queries that involve a selection on a case
+or event attribute. Selections on other types of attributes (including resource
+attributes) cannot be optimized with this proposition.
+Proposition 17 (directly follows and selection commute).
+>c,t σaθxLog = σ↓aθx∧↑aθx >c,t Log, if a is a case or event attribute.
+Proof.
+>c,t σaθxLog
+= (definition 3)
+ρ↓(σaθxLog) ./↓t<↑t∧↓c=↑c ρ↑(σaθxLog)
+− πAs
+(
+((ρ↓(σaθxLog) ./↓t<↑t∧↓c=↑c ρ↑(σaθxLog)) ./↓t<t∧t<↑t∧↓c=c σaθxLog)
+)
+= (proposition 7)
+σ↓aθx(ρ↓Log) ./↓t<↑t∧↓c=↑c σ↑aθx(ρ↑Log)
+− πAs
+(
+((σ↓aθx(ρ↓Log) ./↓t<↑t∧↓c=↑c σ↑aθx(ρ↑Log)) ./↓t<t∧t<↑t∧↓c=c σaθxLog)
+)
+= (proposition 1, 3, 5)
+σ↓aθx∧↑aθx(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− πAs
+(
+σ↓aθx∧↑aθx∧aθx((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (assume ↓aθx ∧ ↑aθx⇒ aθx)
+σ↓aθx∧↑aθx(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− πAs
+(
+σ↓aθx∧↑aθx((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (proposition 9)
+σ↓aθx∧↑aθx(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− σ↓aθx∧↑aθx
+(
+πAs((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (proposition 6)
+σ↓aθx∧↑aθx
+(
+ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log
+− πAs((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (definition 3)
+σ↓aθx∧↑aθx >c,t Log
+Note that proposition 9 requires that the condition only contains attributes
+that are also projected (in this case ↓ a, ↑ a must be in As). This condition is
+satisfied as per definition 3. Also note that the proof uses an assumption, which
+states that if any two events in a case have the same value for an attribute, all
+events for that case that are between these two (in time) must also have that
+value (↓aθx ∧ ↑aθx ⇒ aθx). This assumption holds for case attributes and for
+event attributes, which are the scope of this proposition.
+The next proposition is a variant of the previous one, in which there is a
+condition on two attributes instead of an attribute and a value.
+Proposition 18 (directly follows and selection commute 2).
+>c,t σaθbLog = σ↓aθ↓b∧↓aθ↑b∧↑aθ↓b∧↑aθ↑b >c,t Log, if a, b are case or event at-
+tributes.
+Proof. Analogous to the proof of proposition 17
+To prove that directly follows and projection commute, we first need to prove
+that projection and set minus commute, because the set minus operator is an
+important part of the definition of the directly follows operator. However, for
+the general case it is not true that projection and set minus commute. A counter
+example is easily constructed. Let R = {{a 7→ 1, b 7→ 2}} and S = {{a 7→
+1, b 7→ 3}}. For these relations it does not hold that πa(R−S) = (πaR)− (πaS).
+However, we can prove this proposition for the special case that S is a subset of
+R and a uniquely identifies tuples in R. Since these conditions are satisfied for
+the directly follows operator, it is sufficient to prove the proposition under these
+conditions.
+Proposition 19 (projection and restricted set minus commute).
+πa(R− S) = (πaR)− (πaS), if S ⊆ R and a uniquely identifies each tuple in R.
+Proof. This equivalence is proven by observing that S ⊆ R implies that a non-
+surjective injective function f : S → R exists that matches each tuple s in S
+to a unique tuple r in R. The fact that a uniquely identifies tuples in R (and
+also in S, because S is a subset of R) implies that f is completely determined
+by the values of tuples in a, i.e., the values of attributes other than a have no
+consequence for f . Therefore, projecting R and S onto a does not change the
+tuple mapping defined by f .
+Now, looking at the left side of proposition 19, calculating the projection over
+the difference, means removing the attributes not in a from the selected tuples
+in R that are not in the range of f . Looking at the right side, calculating the
+difference over the projections, means removing the attributes not in a from R
+and S (which does not affect f) and then selecting the tuples in R that are not
+in the range of f . These two are equivalent.
+Proposition 20 (directly follows and restricted projection commute).
+>c,t πc,t,aLog = π↓c,↓t,↓a,↑c,↑t,↑a >c,t Log
+Proof.
+>c,t πc,t,aLog
+= (definition 3)
+ρ↓(πc,t,aLog) ./↓t<↑t∧↓c=↑c ρ↑(πc,t,aLog)
+− πAs((ρ↓(πc,t,aLog) ./↓t<↑t∧↓c=↑c ρ↑(πc,t,aLog)) ./↓t<t∧t<↑t∧↓c=c πc,t,aLog)
+= (proposition 8)
+π↓c,↓t,↓a(ρ↓Log) ./↓t<↑t∧↓c=↑c π↑c,↑t,↑a(ρ↑Log)
+− πAs((π↓c,↓t,↓a(ρ↓Log) ./↓t<↑t∧↓c=↑c π↑c,↑t,↑a(ρ↑Log)) ./↓t<t∧t<↑t∧↓c=c πc,t,aLog)
+= (proposition 10)
+π↓c,↓t,↓a,↑c,↑t,↑a(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− πAs
+(
+π↓c,↓t,↓a,↑c,↑t,↑a,c,t,a((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (proposition 11, 12)
+π↓c,↓t,↓a,↑c,↑t,↑a(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− π↓c,↓t,↓a,↑c,↑t,↑a
+(
+πAs((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (proposition 19)
+π↓c,↓t,↓a,↑c,↑t,↑a
+(
+(ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log)
+− πAs((ρ↓Log ./↓t<↑t∧↓c=↑c ρ↑Log) ./↓t<t∧t<↑t∧↓c=c Log)
+)
+= (definition 3)
+π↓c,↓t,↓a,↑c,↑t,↑a >c,t Log
+The next proposition, which states that the directly follows relation and the
+theta join commute, makes it explicit that the directly follows relation duplicates
+all attributes of a log event. Table 3 illustrates this. However, if the case, activity
+and start time attribute uniquely identify an event, then there is no need to
+duplicate the end time attribute or any other attribute. Nonetheless, the directly
+follows operator adds all attributes both on the ↑ and on the ↓ side of the table.
+This redundancy can easily be fixed later on with a project operator and in
+future work additional efficiency may be achieved by avoiding this redundancy
+altogether.
+Proposition 21 (directly follows and theta join commute).
+>c,t (R ./aθb S) = (>c,t R) ./↓aθb S ./↑aθb S, if each tuple from R is combined
+with a tuple in S.
+Proof.
+>c,t (R ./aθb S)
+= (definition 3)
+ρ↓(R ./aθb S) ./↓t<↑t∧↓c=↑c ρ↑(R ./aθb S)
+− πAs((ρ↓(R ./aθb S) ./↓t<↑t∧↓c=↑c ρ↑(R ./aθb S)) ./↓t<t∧t<↑t∧↓c=c (R ./aθb S))
+= (proposition 13)
+(ρ↓R) ./↓aθb S ./↓t<↑t∧↓c=↑c (ρ↑R) ./↑aθb S
+− πAs(((ρ↓R) ./↓aθb S) ./↓t<↑t∧↓c=↑c (ρ↑R) ./↑aθb S) ./↓t<t∧t<↑t∧↓c=c R ./aθb S)
+= (proposition 4, 10, 14, 15)
+ρ↓R ./↓t<↑t∧↓c=↑c ρ↑R ./↓aθb S ./↑aθb S
+− πAs(ρ↓R ./↓t<↑t∧↓c=↑c ρ↑R ./↓t<t∧t<↑t∧↓c=c R) ./↓aθb S ./↑aθb S
+= (proposition 16)(
+ρ↓R ./↓t<↑t∧↓c=↑c ρ↑R
+− πAs(ρ↓R ./↓t<↑t∧↓c=↑c ρ↑R ./↓t<t∧t<↑t∧↓c=c R)
+)
+./↓aθb S ./↑aθb S
+= (proposition 16)
+(>c,t R) ./↓aθb S ./↑aθb S
+4 Execution cost
+We determine the computational cost of executing the directly follows operation,
+either as part of a process mining tool or as an operation that is executed directly
+Table 4. Execution costs of process mining on a database
+execution strategy order of costs (disk blocks)
+classical process mining
+with intermediate storage 3 ·B
+with database connection B
+with database operator
+native operator B
+composite operator B up to B3
+on the database. We also determine the effect of query optimization on the
+directly follows operator.
+4.1 Cost of computing the directly follows relation
+The execution cost of a database operation is typically defined in terms of the
+number of disk blocks read or written, because reading from or writing to disk are
+the most expensive database operations. In line with the strategies for process
+mining on a database that are presented in Figure 1, Table 4 shows four execution
+strategies with their costs. (Note that the ‘with database operator’ strategy from
+Figure 1 is split up into two alternatives.) The cost is presented as an order of
+magnitude, measured in terms of the number of disk blocks B that must be read
+or written. The number of disk blocks is linear with the number of events in
+the log and depends on the number of bytes needed to store an event and the
+number of bytes per disk block. These measures assume that the complete log
+fits into memory.
+Process mining with intermediate storage requires that the log is read and
+written three times: once to query the database for the log, once to store the log
+to disk, and once to load the log in the process mining tool. Consequently, the
+complexity is 3 ·B. Process mining directly on a database requires that the log
+is read only once. Subsequent processing can be done in memory.
+In many usage scenarios more flexible querying capabilities are needed, which
+can benefit from access to all SQL operators. For such usage scenarios, the
+‘directly follows’ relation must be extracted directly from the database. It is easy
+to imagine how a native ‘directly follows’ operator would work. Such an operator
+would read the log, then sort it by case identifier and timestamp, and finally
+return each pair of subsequent rows that have the same case identifier. Such an
+operator would have to read the log from disk only once and consequently has
+linear cost. For databases that do not have a native ‘directly follows’ operator,
+the operator can be emulated using the composite formula from definition 3.
+The drawback of this formula is that it requires that the intermediate results
+from both sides of the minus operator are stored, after which the minus operator
+can be applied. While this is no problem as long as the intermediate results fit
+into memory, the costs become prohibitive once the intermediate results must
+be written to disk.
+100000
+200000
+300000
+400000
+500000
+5000
+10000
+15000
+10^4
+10^6
+10^8
+10^10
+10^12
+# Events
+# Cases
+C
+o
+st
+ (
+D
+is
+kb
+lo
+ck
+s)
+Fig. 2. Execution costs of process mining using the composite operator
+On a practical level, this problem manifested itself, for example, for the log of
+the BPI 2011 challenge [13] on our desktop with an i5 processor, 8GB of internal
+memory and an SSD drive, using MySQL and the standard MySQL buffer size.
+Each attempt to perform a database query that involved a composite ‘directly
+follows’ relation, needed at least 10 minutes to execute, which is prohibitive for
+interactive exploration of an event log.
+On a theoretical level, the problem is illustrated in Figure 2. This figure shows
+that the problem arises when the number of events in the log is high, relative
+to the number of cases. The mechanism that causes this is easy to derive from
+definition 3, which shows that the intermediate results that must be stored are
+the pairs of events that directly or indirectly follow each other in some case (the
+left side and right side of the minus operator). Consequently, if there are many
+events per case, this number is high (cubic over the number of events per case
+in the right-hand side of the minus operator).
+The precise calculation can be performed as follows. Let V be the number of
+cases in the log, N be the number of events, F be the block size (i.e. the number
+of tuples/events that fit in a single disk block), BLog =
+N
+F the number of disk
+blocks required to store the log, and M be the total memory size in blocks. Note
+that the cost of a block nested join (or minus) operator on two relations R and
+S that take BR and BS disk blocks (with BR ≤ BS), is equal to BR +BS when
+one of the two relations fits in memory, and equal to BR+
+BS
+M ·BR otherwise [9].
+The cost is split up into five components:
+1. The cost of the first join is denoted as Bjoin1 . This equals BLog if the log fits
+into memory and BLog +
+BLog
+M ·BLog otherwise. Note that this join appears
+twice, but that it only needs to be computed once.
+2. The cost of storing the results of the first join to disk is denoted as Bresult1 .
+This equals 0 if the result fits in memory. Otherwise, the number of tuples
+in the result, which we denote as |t1|, equals the number of pairs of events
+that directly or indirectly follow each other in some case: V · (NV ·
+N
+V − 1)/2
+on average. This fits into |t1|·2F disk blocks (times 2 because each tuple in the
+result is a pair of tuples from the original).
+3. The cost of the second join is denoted as Bjoin2 . This equals 0 if the original
+log fits into memory. Otherwise, the cost equals BLog +
+|t1|·2
+F /M ·BLog.
+4. The cost of storing the result of the second join to disk is denoted as Bjoin2 .
+This equals 0 if the result fits into memory. Otherwise, the number of tuples
+in the result, which we denote as |t2|, equals the number of pairs of events
+that indirectly follow each other. This equals the number of pairs of events
+|t1| that directly of indirectly follow each other minus the number of pairs
+of events that directly follow each other: V · (NV − 1) on average. This fits
+into |t2|·2F disk blocks (times 2 because each tuple in the result is a triple of
+tuples from the original and then reduced to a pair by projection).
+5. The cost of the minus operator is denoted as Bminus. This equals 0 if the
+result of the second join fits into memory. Otherwise, it equals Bresult1 +
+Bresult1
+M ·Bresult2 .
+To generate Figure 2 we used a tuple size of 80 bytes, a 4 GB buffer size,
+and a block size of 50, such that there is a total memory size of 1 million blocks.
+The figure shows two ‘thresholds’ in the computational cost. These thresholds
+are crossed when a particular intermediate result no longer fits into memory.
+The order of the cost can be determined more easily. The order of the cost is
+determined the cost of the set minus, because this incorporates both intermediate
+results, which are typically much larger than the original log. Therefore, the order
+of the cost of computing the intermediate results are N
+2
+V /F . The total order
+of cost is then obtained by filling these costs out in the right-hand side of the
+formula for computing the cost of the set minus, which yields: (N
+2
+V /F/M)·
+N2
+V /F .
+If we let M be large enough to contain the log itself, but not the intermediate
+results (i.e. we set M = NF ), this can be simplified as:
+N3
+V 2 /F .
+Summarizing, the execution cost of flexibly retrieving a directly follows re-
+lation directly from a database can be as low as retrieving it from a process
+mining tool, if the database supports a native ‘directly follows’ operator and the
+process mining tool supports on-database process mining. However, as long as a
+native ‘directly follows’ operator does not exist, the execution costs increase to
+third order polynomial cost if the average number of events per case is high (i.e.
+if intermediate results do not fit into memory anymore).
+4.2 The effect of query optimization
+An advantage of in-database process mining is that it enables query optimization.
+Query optimization, using the rewrite rules that are defined in section 3.2 can
+greatly reduce the cost of executing a query. As an example, we show the cost of
+executing the query >c,t σaθxLog and the equivalent query σ↓aθx∧↑aθx >c,t Log.
+These costs decrease at least linearly with the fraction of events that match the
+selection criteria. Let Q be that fraction. Table 5 shows the different execution
+situations that can arise. It is possible to either first derive the directly follows
+relation and then do the selection, or vice versa. It is also possible that the
+intermediate results fit in memory, or that they must be stored on disk. If the
+results fit in memory (and the table is indexed with respect to the variable
+on which the selection is done), then the execution costs are simply the cost of
+reading the log, or the part that matches the selection criteria, into memory once.
+If the intermediate results do not fit into memory, the order of the execution cost
+is N
+3
+V 2 /F as explained in the previous section. Remembering that B =
+N
+F leads
+to the formulas that are shown in the table.
+Table 5. Execution cost orders of different execution sequences
+execution sequence in memory (blocks) on disk (blocks)
+σ > Log B B · (N
+V
+)2
+> σLog B · S Q ·B · (N
+V
+)2
+The most dramatic increase occurs when, if the selection is done first and
+as a consequence the intermediate results fit into memory, while if the selection
+is done last, the intermediate results do not fit into memory. In practice this
+is likely to be the case, because the selection can greatly reduce the number of
+events that are considered. For example, for a log with N = 10, 000 events over
+V = 500 cases, with a block size of F = 50 and a selection fraction Q = 0.10,
+the order of the cost increases from 20 to 8 · 104 according to the formulas from
+Table 5. The actual computed costs increase (the same order of magnitude) from
+21 (plus one, because we need to read one disk block to load the index that is
+used to optimize the selection) to 9.5 · 104 using the formulas from the previous
+section.
+This shows that the way in which a query that includes the directly follows
+operator is executed greatly influences the execution cost. Query optimizers,
+which are parameterized with equivalence relations from section 3.2 and the cost
+calculation functions from section 4.1, can automatically determine the optimal
+execution strategy for a particular query.
+5 Related Work
+By defining an operator for efficiently extracting the ‘directly follows’ relation
+between events from a database, this paper has its basis in a long history of
+papers that focus on optimizing database operations. In particular, it is related
+to papers that focus on optimizing database operations for data mining pur-
+poses [11,7], of which SAP HANA [15] is a recent development. The idea of
+proposing domain-specific database operators has also been applied in other do-
+mains, such as spatio-temporal databases [6] and scientific databases [12].
+By presenting a ‘directly follows’ operator, the primary goal of this paper is
+to support computationally efficient process mining on a database. There exist
+some papers that deal with the computational complexity of the process mining
+algorithms themselves [19,8]. Also, in a research agenda for process mining the
+computational complexity and memory usage of process mining algorithms have
+been identified as important topics [3]. However, this paper focuses on a step that
+precedes the process mining itself: flexibly querying a database to investigate
+which information is useful for process mining.
+More database-related work from the area of process mining comes from
+shaping data warehouses specifically for process mining [14,20]. There also exists
+work that focuses on the extraction of logs from a database [17].
+6 Conclusions
+This paper presents a first step towards in-database process mining. In particu-
+lar, it completely defines a relational algebraic operator to extract the ‘directly
+follows’ relation from a log that is stored in a relational database, possibly dis-
+tributed over multiple tables. The paper presents and proves relational algebraic
+properties of this operator, in particular that the operator commutes with the
+selection, projection, and theta join. These equivalence relations can be used for
+query optimization. Finally, the paper presents and proves formulas to estimate
+the computational cost of the operator. These formulas can be used in combi-
+nation with the equivalence relations to determine the most efficient execution
+strategy for a query. By presenting and proving these properties, the paper pro-
+vides the complete formal basis for implementing the operator into a specialized
+DBMS for process mining, which can be used to efficiently and conveniently
+query a database for process mining information.
+Consequently, the obvious next step of this research is to implement the op-
+erator into a DBMS. The DBMS and the relational algebraic operators can then
+be further extended with additional process mining-specific operators, such as
+an operator to query for execution traces. In addition, more algebraic properties
+of those operators can be proven to assist with query optimization.
+There are some limitations to the equivalence relations that are presented in
+this paper, in particular with respect to the conditions under which they hold.
+These limitations restrict the possibilities for query optimization. The extent to
+which these theoretical limitations impact practical performance of the operator
+must be investigated and, if possible, mitigated.
+References
+1. van der Aalst, W., et al.: Process mining manifesto. In: Proc. of BPM Workshops.
+pp. 169–194 (2012)
+2. van der Aalst, W.: Process Mining: Discovery, Conformance and Enhancement of
+Business Processes. Springer (2011)
+3. van der Aalst, W., Weijters, A.: Process mining: a research agenda. Computers in
+Industry 53(3), 231–244 (2004)
+4. van der Aalst, W., Weijters, A., Maruster, L.: Workflow mining: Discovering pro-
+cess models from event logs. IEEE Transactions on Knowledge and Data Engineer-
+ing 16(9), 1128–1142 (2004)
+5. Abiteboul, S., Hull, R., Vianu, V.: Foundations of databases: the logical level.
+Addison-Wesley (1995)
+6. Abraham, T., Roddick, J.F.: Survey of spatio-temporal databases. GeoInformatica
+3(1), 61–99 (1999)
+7. Agrawal, R., Imielinski, T., Swami, A.: Database mining: a performance perspec-
+tive. IEEE Transactions on Knowledge and Data Engineering 5(6), 914–925 (1993)
+8. Bergenthum, R., Desel, J., Lorenz, R., Mauser, S.: Process Mining Based on Re-
+gions of Languages, pp. 375–383 (2007)
+9. Blasgen, M.W., Eswaran, K.P.: Storage and access in relational data bases. IBM
+Systems Journal 16(4), 363–377 (1977)
+10. Chaudhuri, S.: An overview of query optimization in relational systems. In: Proc.
+of PODS. pp. 34–43. New York, NY, USA (1998)
+11. Chen, M.S., Han, J., Yu, P.S.: Data mining: an overview from a database per-
+spective. IEEE Transactions on Knowledge and Data Engineering 8(6), 866–883
+(1996)
+12. Cudre-Mauroux, P., Kimura, H., Lim, K.T., Rogers, J., Simakov, R., Soroush, E.,
+Velikhov, P., Wang, D.L., Balazinska, M., Becla, J., DeWitt, D., Heath, B., Maier,
+D., Madden, S., Patel, J., Stonebraker, M., Zdonik, S.: A demonstration of scidb:
+A science-oriented dbms. Proc. VLDB Endow. 2(2), 1534–1537 (2009)
+13. van Dongen, B.: Real-life event logs - hospital log (2011)
+14. Eder, J., Olivotto, G.E., Gruber, W.: A Data Warehouse for Workflow Logs, pp.
+1–15 (2002)
+15. Färber, F., Cha, S.K., Primsch, J., Bornhövd, C., Sigg, S., Lehner, W.: Sap hana
+database: Data management for modern business applications. SIGMOD Rec.
+40(4), 45–51 (2012)
+16. Günther, C., van der Aalst, W.: Fuzzy mining: Adaptive process simplification
+based on multi-perspective metrics. In: Proc. of BPM 2007. pp. 328–343 (2007)
+17. Ingvaldsen, J.E., Gulla, J.A.: Preprocessing support for large scale process mining
+of sap transactions. In: Proc. of BPM. pp. 30–41 (2007)
+18. Kim, W.: On optimizing an SQL-like nested query. ACM Trans. on Database Sys-
+tems 7(3), 443–469 (1982)
+19. Maggi, F.M., Bose, R.P.J.C., van der Aalst, W.M.P.: Efficient Discovery of Under-
+standable Declarative Process Models from Event Logs, pp. 270–285 (2012)
+20. zur Mühlen, M.: Process-driven manaement information systems – combining data
+warehouses and workflow technology. In: Proc. of ICECR. pp. 550–566 (2001)
+21. Sagiv, Y., Yannakakis, M.: Equivalcen among relational expressions with the union
+and difference operation. In: Proc. of VLDB. pp. 535–548 (1978)
+22. Weijters, A., van der Aalst, W., Alves De Medeiros, A.: Process mining with the
+heuristics miner-algorithm. Technische Universiteit Eindhoven, Tech. Rep. WP
+166, 1–34 (2006)
+

@@ -1,0 +1,1074 @@
+Loom: Exploiting Weight and Activation Precisions
+to Accelerate Convolutional Neural Networks
+Sayeh Sharify, Alberto Delmas Lascorz, Patrick Judd, Andreas Moshovos
+Department of Electrical and Computer Engineering, University of Toronto
+Email: {sayeh, delmasl1, judd, moshovos}@ece.utoronto.ca
+Abstract—Loom (LM), a hardware inference accelerator for
+Convolutional Neural Networks (CNNs) is presented. In LM every
+bit of data precision that can be saved translates to proportional
+performance gains. Specifically, for convolutional layers LM’s
+execution time scales inversely proportionally with the precisions
+of both weights and activations. For fully-connected layers LM’s
+performance scales inversely proportionally with the precision
+of the weights. LM targets area constrained System-on-a-Chip
+designs such as those found on mobile devices that cannot
+afford the multi-megabyte buffers that would be needed to store
+each layer on-chip during processing. Experiments on image
+classification CNNs show that on average across all networks
+studied and assuming that weights are supplied via a High
+Bandwidth Memory v2 (HBM2) interface, a configuration of
+LM outperforms a state-of-the-art bit-parallel accelerator [1]
+by 2.34× without any loss in accuracy while being 2.23×
+more energy efficient. Moreover, LM can trade-off accuracy for
+additional improvements in execution performance and energy
+efficiency.
+I. INTRODUCTION
+Deep neural networks (DNNs) have become the state-of-
+the-art technique in many recognition tasks such as object [2]
+and speech recognition [3]. The high computational band-
+width demands and energy consumption of DNNs motivated
+several special purpose architectures such as the state-of-
+the-art DaDianNao (DaDN) data-parallel accelerator [1]. To
+maximize performance DaDN, as proposed, uses 36MB of
+on-chip eDRAM to hold all input (weights and activation) and
+output data (activations) per layer. Unfortunately, such large
+on-chip buffers are beyond the reach of embedded and mobile
+system-on-chip (SoC) devices.
+This work presents Loom (LM), a hardware accelerator
+for inference with Convolutional Neural Networks (CNNs)
+targeting embedded systems where the bulk of the data pro-
+cessed cannot be held on chip and has to be fetched from
+off-chip memories. LM exploits the precision requirement
+variability of modern CNNs to reduce the off-chip network
+footprint, increase bandwidth utilization, and to deliver perfor-
+mance which scales inversely proportional with precision for
+both convolutional (CVLs) and fully-connected (FCLs) layers.
+Ideally, compared to a conventional DaDN-like data-parallel
+accelerator that uses a fixed precision of 16 bits, LM achieves a
+speedup of 256Pa×Pw and
+16
+Pw
+for CVLs and FCLs where Pw and
+Pa are the precisions of weights and activations respectively.
+LM process both activations and weights bit-serially while
+compensating for the loss in computation bandwidth by ex-
+ploiting parallelism. Judicious reuse of activations or weights
+enables LM to improve performance and energy efficiency over
+conventional bit-parallel designs without requiring a wider
+memory interface.
+We evaluate LM on an SoC with a High Bandwidth Mem-
+ory V2 (HBM2) interface comparing against a DaDN-like
+accelerator (BASE). Both accelerators are configured so that
+they can utilize the full bandwidth of HBM2. On a set of
+image classification CNNs, on average LM yields a speedup
+of 2.37×, 1.74×, and 2.34× over BASE for the convolutional,
+fully-connected, and all layers respectively. The energy ef-
+ficiency of LM over BASE is 2.26×, 1.67× and 2.23× for
+the aforementioned layers respectively. LM enables trading
+off accuracy for additional improvements in performance and
+energy efficiency. For example, accepting a 1% relative loss
+in accuracy, LM yields 2.50× higher performance and 2.39×
+more energy efficiency than BASE.
+The rest of this document is organized as follows: Sec-
+tion II illustrates the key concepts behind LM via an example.
+Section III reviews the BASE architecture and presents an
+equivalent Loom configuration. The evaluation methodology
+and experimental results are presented in Section IV. Section V
+reviews related work, and Section VI concludes.
+II. Loom: A SIMPLIFIED EXAMPLE
+This section explains how LM would process CVLs and
+FCLs assuming 2-bit activations and weights.
+Conventional Bit-Parallel Processing: Figure 1a shows
+a bit-parallel processing engine which multiplies two input
+activations with two weights generating a single 2-bit output
+activation per cycle. The engine can process two new 2-bit
+weights and/or activations per cycle a throughput of two 2b×2b
+products per cycle.
+Loom’s Approach: Figure 1b shows an equivalent LM engine
+comprising four subunits organized in a 4 × 4 array. Each
+subunit accepts 2 bits of input activations and 2 bits of weights
+per cycle. The subunits along the same column share the
+activation inputs while the subunits along the same row share
+their weight inputs. In total, this engine accepts 4 activation
+and 4 weight bits equaling the input bandwidth of the bit-
+parallel engine. Each subunit has two 1-bit Weight Registers
+(WRs), one 2-bit Output Register (OR), and can perform two
+1b× 1b products which it can accumulate into its OR.
+Figure 1b through Figure 1f show how LM would process
+an FCL. As Figure 1b shows, in cycle 1, the left column
+subunits receive the least significant bits (LSBs) a0/0 and a1/0
+ar
+X
+iv
+:1
+70
+6.
+07
+85
+3v
+1 
+ [
+cs
+.D
+C
+] 
+ 2
+3 
+Ju
+n 
+20
+17
+Weight 0
+Weight 1
+Activation 0 Activation 1
+X
+X
++ Out
+2
+2
+2 2
+w01/1
+w01/0
+w00/1
+w00/0
+a0/1 a0/0 a1/1 a1/0
+(a) Bit-Parallel Engine processing 2b × 2b layer
+over two cycles
+Out0
+1
+1
+1
+a0/0
+1 1
+X
+X
+1
+1
+a1/0
+1
+w11/0
+w10/0
+w01/0
+w00/0
+Window 
+lane 0
+w00/0
+w01/0
++
+1
+1
+1 1
+X
+X
+Window 
+lane 1
++ Out2
+Out1
+1
+1
+1
+X
+X
+1
+1
+1
+w10/0
+w11/0
++
+1
+1
+X
+X
++ Out3
+WR OR
+(b) Cycle 1: Load LSB of weights from filters 0
+and 1 into the left WRs
+Out0
+1
+1
+1
+a0/1
+1 1
+X
+X
+1
+1
+a1/1
+1
+w31/0
+w30/0
+w21/0
+w20/0 w
+0
+0/0
+w01/0
++
+1
+1
+1 1
+X
+X
++ Out2
+Out1
+1
+1
+1
+X
+X
+1
+1
+1
+w10/0
+w11/0
++
+1
+1
+X
+X
++ Out3
+a0/0 a1/0
+w31/0
+w30/0
+w21/0
+w20/0
+(c) Cycle 2: Load LSB of weights from filters 2
+and 3 into the right WRs
+Out0
+1
+1
+1
+a0/0
+1 1
+X
+X
+1
+1
+a1/0
+1
+w11/1
+w10/1
+w01/1
+w00/1 w
+0
+0/1
+w01/1
++
+1
+1
+1 1
+X
+X
++ Out2
+Out1
+1
+1
+1
+X
+X
+1
+1
+1
+w10/1
+w11/1
++
+1
+1
+X
+X
++ Out3
+a0/1 a1/1
+w31/0
+w30/0
+w21/0
+w20/0
+(d) Cycle 3: Load MSB of weights from filters 0
+and 1 into the left WRs
+Out0
+1
+1
+1
+a0/1
+1 1
+X
+X
+1
+1
+a1/1
+1
+w31/1
+w30/1
+w21/1
+w20/1 w
+0
+0/1
+w01/1
++
+1
+1
+1 1
+X
+X
++ Out2
+Out1
+1
+1
+1
+X
+X
+1
+1
+1
+w10/1
+w11/1
++
+1
+1
+X
+X
++ Out3
+a0/0 a1/0
+w31/1
+w30/1
+w21/1
+w20/1
+(e) Cycle 4: Load MSB of weights from filters 2
+and 3 into the right WRs
+Out0
+1
+1
+1
+1 1
+X
+X
+1
+1
+1
++
+1
+1
+1 1
+X
+X
++ Out2
+Out1
+1
+1
+1
+X
+X
+1
+1
+1
++
+1
+1
+X
+X
++ Out3
+a0/1 a1/1
+w31/1
+w30/1
+w21/1
+w20/1
+(f) Cycle 5: Multiply MSB of weights from filters
+2 and 3 with MSB of a0 and a1
+Fig. 1. Processing an example Fully-Connected Layer using LM’s Approach.
+of activations a0 and a1, and w00/0, w
+0
+1/0, w
+1
+0/0, and w
+1
+1/0, the
+LSBs of four weights from filters 0 and 1. Each of these two
+subunits calculates two 1b×1b products1 and stores their sum
+into its OR. In cycle 2, as Figure 1c shows, the left column
+subunits now multiply the same weight bits with the most
+significant bits (MSBs) a0/1 and a1/1 of activations a0 and
+a1 respectively accumulating these into their ORs. In parallel,
+the two right column subunits load a0/0 and a1/0, the LSBs
+of the input activations a0 and a1, and multiply them by the
+LSBs of weights w20/0, w
+2
+1/0, w
+3
+0/0, and w
+3
+1/0 from filters 2 and
+3. In cycle 3, the left column subunits now load and multiply
+the LSBs a0/0 and a1/0 with the MSBs w00/1, w
+0
+1/1, w
+1
+0/1, and
+w11/1 of the four weights from filters 0 and 1. In parallel, the
+right subunits reuse their WR-held weights w20/0, w
+2
+1/0, w
+3
+0/0,
+and w31/0 and multiply them the most significant bits a0/1
+and a1/1 of activations a0 and a1 (Figure 1d). As Figure 1e
+illustrates, in cycle 4, the left column subunits multiply their
+WR-held weights and a0/1 and a1/1 the MSBs of activations
+a0 and a1 and finish the calculation of output activations o0
+and o1. Concurrently, the right column subunits load w20/1,
+w21/1, w
+3
+0/1, and w
+3
+1/1, the MSBs of the weights from filters
+2 and 3 and multiply them with a0/0 and a1/0. In cycle 5, as
+Figure 1f shows, the right subunits complete the multiplication
+of their WR-held weights and a0/1 and a1/1 the MSBs of the
+two activations. By the end of this cycle, output activations o2
+and o3 are ready as well.
+In total it took 4+1 cycles to process 32 1b×1b products (4,
+8, 8, 8, 4 products in cycles 2 through 5, respectively). Notice
+1In reality the product and accumulation would take place in the subsequent
+cycle. For clarity, we do not describe this in detail. It would only add an extra
+cycle in the processing pipeline per layer.
+that at the end of the fifth cycle, the left column subunits
+are idle, thus another set of weights could have been loaded
+into the WRs allowing a new set of outputs to commence
+computation. In the steady state, when the input activations
+and the weights are represented in two bits, this engine will
+be producing 8 1b × 1b terms every cycle thus matching the
+2 2b× 2b throughput of the parallel engine.
+If the weights could be represented using only one bit, LM
+would be producing two output activations per cycle, twice
+the bandwidth of the bit-parallel engine. In general, if the bit-
+parallel hardware was using Pbase bits to represent the weights
+while only Pw bits were actually required, for the FCLs the
+LM engine would outperform the bit-parallel engine by PbasePw .
+Since there is no weight reuse in FCLs, Cn cycles are required
+to load a different set of weights to each of the Cn columns.
+Thus having activations that use less than Cn bits would not
+improve performance (but could improve energy efficiency).
+Convolutional Layers: LM processes CVLs mostly similarly
+to FCLs but exploits weight reuse across different windows
+to exploit a reduction in precision for both weights and
+activations. Specifically, in CVLs the subunits across the
+same row share the same weight bits which they load in
+parallel into their WRs in a single cycle. These weight bits
+are multiplied by the corresponding activation bits over Pa
+cycles. Another set of weight bits needs to be loaded every
+Pa cycles, where Pa is the input activation precision. Here LM
+exploits weight reuse across multiple windows by having each
+subunit column process a different set of activations. Assuming
+that the bit-parallel engine uses Pbase bits to represent both
+input activations and weights, LM will outperform the bit-
+parallel engine by P
+2
+base
+Pw×Pa where Pw and Pa are the weight
+and activation precisions respectively.
+Activation 
+Lane 0
+Activation 
+Lane 15
+ABin
+Off-chip memory
+Weight 
+Lane 0
+Weight 
+Lane 15
+8
+IP0
+8
+16
+16
+16 16
+IP0
+X
+X
++
+16
+16
+16 16
+to ABout
+Filter
+(a) Baseline design
+ABin
+Off-chip memory
+Weight 
+Lane 0
+Weight 
+Lane 15
+1
+1
+to ABout
+SIP(0,0)
++
+WR
+1
+1
+11
+Activation 
+Lane 0
+Activation 
+Lane 15
+SIP(0,0)
+1 1
+Activation 
+Lane 240
+Activation 
+Lane 255
+SIP(15,0)
+1 1
+From weight lane
+(b) Loom
+Fig. 2. The two CNN accelerators.
+III. Loom ARCHITECTURE
+This section describes the baseline DaDN-like design, how
+it was configured to work with an HBM2 memory, and finally
+the Loom architecture.
+A. Data Supply and Baseline System
+Our baseline design (BASE) is an appropriately configured
+data-parallel engine inspired by the DaDN accelerator [1].
+DaDN uses 16-bit fixed-point activations and weights. A
+DaDN chip integrates 16 tiles where each tile processes 16
+filters concurrently, and 16 weight and activation products
+per filter. In total, a DaDN chip processes 16 × 16 = 256
+filters and 4K products concurrently requiring 8KB of weight
+and 32B or activation inputs (16 activations are reused by all
+256 filters) per cycle. Given the 1GHz operating frequency,
+sustaining DaDN’s compute bandwidth requires 8TB/sec and
+32GB/sec of weight and input activation bandwidth respec-
+tively. DaDN uses 32MB weight and 4MB activation eDRAMs
+for this purpose. Such large on-chip memories are beyond the
+reach of modern embedded SoC designs. Given that there is no
+weight reuse in FCLs all weights have to be supplied from an
+off-chip memory.2 Accordingly, BASE is a DaDN compute
+engine configured to match the external weight memory’s
+bandwidth. Assuming a High Bandwidth Memory v2 (HBM2)
+interface and current commercial offerings, weights can be
+read at the rate of 256GB/s [4]. Thus BASE can expect to
+process up to 128 weights per clock cycle. A single tile that
+processes 16 weights from 8 filters suffices. An appropriately
+sized Weight Buffer (WB) can keep the HBM2 interface busy
+while tolerating its latency. The WB will be the same for
+both BASE and LM and will be Mlat × 128B where Mlat
+the latency of the external memory (for example, assuming a
+40ns Mlat, a WB of approximately 5KB would be sufficient.
+2Since there is weight reuse in CVLs it may be possible to boost weight
+supply bandwidth with a smaller than 32MB on-chip WM for CVLs. How-
+ever, off-chip memory bandwidth will remain a bottleneck for FCLs. The
+exploration of such designs is left for future work.
+Given the relatively low activation memory (AM) bandwidth
+and footprint, we assume that activations can be stored on-
+chip. The AM can be dedicated or shared among multiple
+compute engines. It needs to sustain a 32B/cycle bandwidth.
+Figure 2a illustrates the BASE design which processes eight
+filters concurrently calculating 16 input activation and weight
+products per filter for a total of 128 products per cycle. Each
+cycle, the design reduces the 16 products of each filter into
+a single partial output activation, for a total of eight partial
+output activations for the whole chip. Internally, the chip has
+an input activation buffer (ABin) to provide 16 activations per
+cycle through 16 activation lanes, and an output activation
+buffer (ABout) to accept eight partial output activations per
+cycle. In total, 128 16b × 16b multipliers calculate the 128
+activation and weight products and eight 16-input 32b adder
+trees produce the partial output activations. All inter-layer
+activation outputs except for the initial input and the final
+output are stored in a 4MB Activation Memory (AM) which is
+connected to the ABin and ABout buffers. Off-chip accesses
+are needed only for reading: 1) the input image, 2) the weights,
+and 3) for writing the final output.
+B. Loom
+Targeting a 1GHz clock frequency and an HBM2 interface,
+LM can expect to sustain an input bandwidth of up to 2K
+weight bits per cycle. Accordingly, LM is configured to process
+128 filters concurrently and 16 weight bits per filter per
+cycle, for a total of 128 × 16 = 2048 weight bits per
+cycle. LM also accepts 256 1-bit input activations each of
+which it multiplies with 128 1-bit weights thus matching
+the computation bandwidth of base in the worst case where
+both activations and weights need 16 bits. Figure 2b shows
+the Loom design. It comprises 2K Serial Inner-Product Units
+(SIPs) organized in a 128 × 16 grid. Every cycle, each SIP
+multiplies 16 1b input activations with 16 1b weights and
+reduces these products into a partial output activation. The
+SIPs along the same row share a common 16b weight bus,
+n
+e
+g
+x16
+i=1(a0)
+i=1(a15)
+weight
+1
+weight
+1
++
+max
+<<1
+<<
+o_nbout
+i_nboutactivation
+MSB
+1    0
+prec16
+WR
+1
+1
++ +
+<<i=1
+M
+S
+B
+i_
+n
+b
+o
+u
+t
+ca
+s.
+Accu. 1
+Accu. 2
+Fig. 3. LM’s SIP.
+and the SIPs along the same column share a common 16b
+activation bus. Accordingly, as in BASE, the SIP array is fed
+by a 2Kb weight bus and a 256b activation input bus. Similar
+to BASE, LM has an ABout and an ABin. LM processes both
+activations and weights bit-serially.
+Reducing Memory Footprint and Bandwidth: Since both
+weights and activations are processed bit-serially, LM can store
+weights and activations in a bit-interleaved fashion and using
+only as many bits as necessary thus boosting the effective
+bandwidth and storage capacity of the external weight memory
+and the on-chip AM. For example, given 2K 13b weights
+to be processed in parallel, LM would pack first their bit
+0 onto continuous rows, then their bit 1, and so on up to
+bit 12. BASE would stored them using 16 bits instead. A
+transposer can rotate the output activations prior to writing
+them to AM from ABout. Since each output activation entails
+inner-products with tens to hundreds of inputs, the transposer
+demand will be low. Next we explain how LM processes FCLs
+and CVLs.
+Convolutional Layers: Processing starts by reading in parallel
+2K weight bits from the off-chip memory, loading 16 bits to all
+WRs per SIP row. The loaded weights will be multiplied by 16
+corresponding activation bits per SIP column bit-serially over
+PLa cycles where P
+L
+a is the activation precision for this layer
+L. Then, the second bit of weights will be loaded into WRs
+and multiplied with another set of 16 activation bits per SIP
+row, and so on. In total, the bit-serial multiplication will take
+PLa ×PLw cycles. where PLw the weight precision for this layer
+L. Whereas BASE would process 16 sets of 16 activations and
+128 filters over 256 cycles, LM processes them concurrently
+but bit-serially over PLa × PLw cycles. If PLa and/or PLw are
+less than 16, LM will outperform BASE by 256/(PLa × PLw ).
+Otherwise, LM will match BASE’s performance.
+Fully-Connected Layers: Processing starts by loading the
+LSBs of a set of weights into the WR registers of the first SIP
+column and multiplying the loaded weights with the LSBs of
+the corresponding activations. In the second cycle, while the
+first column of SIPs is still busy with multiplying the LSBs of
+its WRs by the second bit of the activations, the LSBs of a new
+set of weights can be loaded into the WRs of the second SIP
+column. Each weight bit is reused for 16 cycles multiplying
+with bits 0 through bit 15 of the input activations. Thus, there
+is enough time for LM to keep any single column of SIPs busy
+while loading new sets of weights to the other 15 columns.
+For example, as shown in Figure 2b LM can load a single bit
+of 2K weights to SIP(0,0)..SIP(0,127) in cycle 0, then load
+a single-bit of the next 2K weights to SIP(1,0)..SIP(1,127) in
+cycle 1, and so on. After the first 15 cycles, all SIPs are fully
+utilized. It will take PLw × 16 cycles for LM to process 16
+sets of 16 activations and 128 filters while BASE processes
+them in 256 cycles. Thus, when PLw is less than 16, LM
+will outperform BASE by 16/PLw and it will match BASE’s
+performance otherwise.
+Processing Layers with Few Outputs: For LM to keep all the
+SIPs busy an output activation must be assigned to each SIP.
+This is possible as long as the layer has at least 2K outputs.
+However, in the networks studied some FCLs have only 1K
+output activations, To avoid underutilization, LM’s implements
+SIP cascading, in which SIPs along each row can form a daisy-
+chain, where the output of one can feed into an input of the
+next via a multiplexer. This way, the computation of an output
+activation can be sliced along the bit dimension over the SIPs
+in the same row. In this case, each SIP processes only a portion
+of the input activations resulting into several partial output
+activations along the SIPs on the same row. Over the next Sn
+cycles, where Sn is the number of bit slices used, the Sn
+partial outputs can be reduced into the final output activation.
+Other Layers: Similar to DaDN, LM processes the additional
+layers needed by the studied networks. To do so, LM incorpo-
+rates units for MAX pooling as in DaDN. Moreover, to apply
+nonlinear activations, an activation functional unit is present
+at the output of the ABout. Given that each output activation
+typically takes several cycles to compute, it is not necessary
+to use more such functional units compared to BASE.
+Total computational bandwidth: In the worst case, where
+both activations and weights use 16b precisions, a single 16b×
+16b product that would have taken BASE one cycle to produce,
+now takes LM 256 cycles. Since BASE calculates 128 products
+per cycle, LM needs to calculate the equivalent of 256× 128
+16b×16b products every 256 cycles. LM has 128×16 = 2048
+SIPs each producing 16 1b×1b products per cycle. Thus, over
+256 cycles, LM produces 2048 × 16 × 256 1b × 1b products
+matching BASE’s compute bandwidth.
+SIP: Bit-Serial Inner-Product Units: Figure 3 shows LM’s
+Bit-Serial Inner-Product Unit (SIP). Every clock cycle, each
+SIP multiplies 16 single-bit activations by 16 single-bit
+weights to produce a partial output activation. Internally, each
+SIP has 16 1-bit Weight Registers (WRs), 16 2-input AND
+Convolutional layers
+Per Layer Activation Network Weight Per Layer Activation Network Weight
+Network Precision in Bits Precision in Bits Precision in Bits Precision in Bits
+100% Accuracy 99% Accuracy
+NiN 8-8-8-9-7-8-8-9-9-8-8-8 11 8-8-7-9-7-8-8-9-9-8-7-8 10
+AlexNet 9-8-5-5-7 11 9-7-4-5-7 11
+GoogLeNet 10-8-10-9-8-10-9-8-9-10-7 11 10-8-9-8-8-9-10-8-9-10-8 10
+VGG S 7-8-9-7-9 12 7-8-9-7-9 11
+VGG M 7-7-7-8-7 12 6-8-7-7-7 12
+VGG 19 12-12-12-11-12-10-11-11-13-12-
+13-13-13-13-13-13
+12 9-9-9-8-12-10-10-12-13-11-12-13-
+13-13-13-13
+12
+TABLE I
+PER LAYER ACTIVATION PRECISIONS AND PER NETWORK WEIGHT PRECISION PROFILES FOR THE CONVOLUTIONAL LAYERS.
+Fully connected layers
+Per Layer Weight Per Layer Weight
+Network Precision in Bits Precision in Bits
+100% Accuracy 99% Accuracy
+AlexNet 10-9-9 9-8-8
+GoogLeNet 7 7
+VGG S 10-9-9 9-9-8
+VGG M 10-8-8 9-8-8
+VGG 19 10-9-9 10-9-8
+TABLE II
+PER LAYER WEIGHT PRECISIONS FOR FULLY-CONNECTED LAYERS.
+gates to multiply the weights in the WRs with the incoming
+input activation bits, and a 16-input 1b adder tree that sums
+these partial products. Accu.1 accumulates and shifts the
+output of the adder tree over PLa cycles. Every P
+L
+a cycles,
+Accu.2 shifts the output of Accu.1 and accumulates it into the
+OR. After PLa ×PLw cycles the Output Register (OR) contains
+the inner-product of an activation and weight set. In each SIP,
+a multiplexer after Accu.1 implements cascading. To support
+signed 2’s complement activations, a negation block is used
+to subtract the sum of the input activations corresponding to
+the most significant bit of weights (MSB) from the partial
+sum when the MSB is 1. Each SIP also includes a comparator
+(max) to support max pooling layers.
+Tuning the Performance, Area and Energy Trade-off: It
+is possible to trade off some of the performance benefits to
+reduce the number of SIPs and the respective area overhead by
+processing more than one bit activation per cycle. Using this
+method, LM requires fewer SIPs to match BASE’s throughput.
+The evaluation section considers 2-bit and 4-bit LM config-
+urations, denoted as (LM2b) and (LM4b), respectively which
+need 8 and 4 SIP columns, respectively. Since activations
+now are forced to be a multiple of 2 or 4 respectively, these
+configurations give up some of the performance potential.
+For example, for LM4b reducing the PLa from 8 to 5 bits
+produces no performance benefit, whereas for the LM1b it
+would improve performance by 1.6×.
+IV. EVALUATION
+This section evaluates Loom performance, energy and area
+and explores the trade-off between accuracy and performance
+comparing to BASE and Stripes*3.
+3Stripes* is a configuration of [5] that is appropriately scaled to match the
+256GB/s bandwidth of the HBM2 interface.
+A. Methodology
+Performance, Energy, and Area Methodology: The mea-
+surements were collected over layouts of all designs as fol-
+lows: The designs were synthesized for worst case, typi-
+cal case, and best case corners with the Synopsys Design
+Compiler [6] using a TSMC 65nm library. Layouts were
+produced with Cadence Encounter [7] using the typical corner
+case synthesis results which were more pessimistic for LM
+than the worst case scenario. Power results are based on the
+actual data-driven activity factors. The clock frequency of all
+designs is set to 980 MHz matching the original DaDianNao
+design [1]. The ABin and ABout SRAM buffers were modeled
+with CACTI [8], and the AM eDRAM area and energy were
+modeled with Destiny [9]. Execution time is modeled via a
+custom cycle-accurate simulator.
+Weight and Activation Precisions: The methodology of
+Judd et al. [10] was used to generate per layer precision
+profiles. Tables I and II indicate precisions for convolutional
+and fully-connected layers, respectively. Caffe [11] was used
+to measure how reducing the precision of each layer affects the
+network’s overall top-1 prediction accuracy over 5000 images.
+The network models and trained-networks are taken from the
+Caffe Model Zoo [12]. Since LM’s performance for the CVLs
+depends on both PLa and P
+L
+w , we adjust them independently:
+we use per layer activation precisions and a common across all
+CVLs weight precision (we found little inter-layer variability
+for weight precisions but additional per layer exploration is
+warranted). Since LM’s performance for FCLs performance
+depends only on PLw we only adjust weight precision for FCLs.
+Table I reports the per layer precisions of input activations
+and network precisions of weights for the CVLs. The preci-
+sions that guarantee no accuracy loss for input activations vary
+from 5 to 13 bits and for weights vary from 10 to 12. When
+a 99% accuracy is still acceptable, the activation and weight
+precision can be as low as 4 and 10 bits, respectively. Table II
+shows that the per layer weight precisions for the FCLs vary
+from 7 to 10 bits.
+B. Results
+Performance: Figure 4 shows the performance of Stripes*
+and Loom configurations for CVLs relative to BASE with the
+precision profiles of Tables I and II. With no accuracy loss
+(100% accuracy) LM1b improves performance of CVLs by a
+Fully-connected Layers Convolutional Layers
+Design 1-bit 2-bit 4-bit 1-bit 2-bit 4-bit
+Perf Eff Perf Eff Perf Eff Perf Eff Perf Eff Perf Eff
+NiN 3.63 2.96 3.35 3.20 2.99 3.18
+AlexNet 1.85 1.51 1.85 1.76 1.85 1.97 3.74 3.05 3.28 3.13 3.12 3.32
+GoogLeNet 2.25 1.84 2.27 2.16 2.28 2.42 2.13 1.74 2.12 2.02 1.99 2.11
+VGG S 1.78 1.46 1.78 1.70 1.79 1.90 2.74 2.24 2.58 2.46 2.37 2.53
+VGG M 1.79 1.47 1.80 1.72 1.80 1.92 2.83 2.31 2.59 2.47 2.63 2.80
+VGG 19 1.63 1.33 1.63 1.56 1.63 1.74 1.79 1.47 1.72 1.64 1.56 1.66
+geomean 1.85 1.51 1.85 1.77 1.86 1.98 2.85 2.22 2.54 2.42 2.38 2.53
+TABLE III
+EXECUTION TIME AND ENERGY EFFICIENCY IMPROVEMENTS FOR FULLY-CONNECT AND CONVOLUTIONAL LAYERS WITH 99% ACCURACY.
+NiN AlexNet Google VGGS VGGM VGG19 Geo
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+Stripes*   1-bit   2-bit   4-bit
+Fig. 4. LM’s performance relative to BASE for convolutional layers with
+100% accuracy.
+factor of 2.50× on average over BASE compared to 1.84× im-
+provement with Stripes*. Similarly, LM2b, and LM4b achieve,
+on average, speedups of 2.37× and 2.22× over BASE on
+the CVLs, respectively. As expected LM2b and LM4b offer
+slightly lower performance than LM1b however given that the
+power consumption of LM2b and LM4b are lower than LM1b,
+this can be a good trade-off. The performance loss of LM2b
+and LM4b is due to the limitation of rounding up activation
+precisions to be multiple of 2 and 4, respectively.
+Figure 5 shows the performance of Stripes* and Loom
+configurations for FCLs layers. Since for the FCLs the perfor-
+mance improvement is only coming from lower precision of
+weights, rounding up the activation precision does not effect
+the performance of the designs. Hence all three configurations
+of the LM outperform the BASE on average by a factor
+of ˜1.74× while Stripes* matches the same performance of
+BASE. However, due to having shorter initiation interval per
+layer the LM4b performs slightly better than the LM2b and
+LM1b on the FCLs. Since GoogLeNet has only one small
+fully-connected layer, the initiation interval has higher effect
+on the performance of the fully-connect layer. Thus, the
+performance variation for different configurations of Loom is
+higher in GoogLeNet.
+AlexNet Google VGGS VGGM VGG19 Geo
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+Stripes*  1-bit  2-bit  4-bit
+Fig. 5. LM’s performance relative to BASE for fully-connected layers with
+100% accuracy.
+Table III illustrates performance and energy efficiency of
+FCLs and CVLs with an up to 1% loss in accuracy (99%
+accuracy). The average speedups for the FCLs with LM1b,
+LM2b, and LM4b are 1.85×, 1.85×, and 1.86×, respectively.
+The respective speedups for the CVLs are 2.85×, 2.54× and
+2.38×.
+Energy Efficiency: Figure 6 shows the energy efficiency
+of Stripes*, LM1b, LM2b, and LM4b relative to BASE for
+CVLs using the 100% accuracy profiles of Table I. Since, the
+number of SIPs in LM1b, LM2b, and LM4b are 2k, 1k, and
+512, respectively, the power consumption of LM4b is less than
+LM2b and that of LM1b so for the all networks LM4b has
+higher energy efficiency than LM2b and LM1b. The LM1b,
+LM2b, and LM4b accelerators for CVLs achieve on average
+energy efficiencies of 2.04×, 2.26×, and 2.36× over BASE
+compared to 1.61× improvement with Stripes*.
+Figure 7 shows the energy efficiency of Stripes* and Loom
+configurations for FCLs layers with no accuracy loss. Since
+Stripes* does not improve the performance for FCLs and
+consumes more energy than BASE, the energy efficiency of
+Stripes* for FCLs is less than one (0.87×). All three con-
+figurations of Loom have the same performance improvement
+for FCLs. However, as the power consumption of LM4b is
+NiN AlexNet Google VGGS VGGM VGG19 Geo
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+Stripes*  1-bit  2-bit  4-bit
+Fig. 6. LM’s energy efficiency relative to BASE for convolutional layers with
+100% accuracy.
+lower than that of two other configurations, it has the highest
+energy efficiency. Similarly, the LM2b design is more energy
+efficient than LM1b. The energy efficiency improvements of
+LM1b, LM2b, and LM4b over BASE are 1.43×, 1.67×, and
+1.86× respectively.
+With the 99% accuracy profiles, LM1b, LM2b, and LM4b
+energy efficiency improves to 2.22×, 2.42×, and 2.53× for the
+CVLs and 1.51×, 1.77×, and 1.98× for the FCLs (Table III).
+On average, over the whole network, LM1b, LM2b and LM4b
+improve energy efficiency by factors of 2.19×, 2.39×, and
+2.50× over the BASE.
+These energy measurements do not include the off-chip
+memory accesses as an appropriate model for HBM2 is not
+available to us. However, since LM uses lower precisions for
+representing the weights, it will transfer less data from off-
+chip. Thus our evaluation is conservative and the efficiency of
+LM will be even higher.
+Area Overhead: Post layout measurements were used to
+measure the area of BASE and Loom. The LM1b configuration
+requires 1.31× more area over BASE while achieving on
+average a 2.47× speedup. The LM2b and LM4b reduce the
+area overhead to 1.23× and 1.14× while still improving the
+execution time by 2.34× and 2.20× respectively. Thus LM
+exhibits better performance vs. area scaling than BASE.
+C. Dynamic Precisions
+To further improve the performance of Loom, similar to
+[13], the precision required to represent the input activations
+and weights can be determined at runtime. This enables Loom
+to exploit smaller precisions without any accuracy loss as
+it explores the weight and activation precisions on smaller
+granularity. In this experiment, the activation precisions are
+adjusted per group of 16 activations that are broadcast to
+the same column of SIPs. Figure 8 shows the performance
+of Loom configurations relative to the BASE. Exploiting the
+AlexNet Google VGGS VGGM VGG19 Geo
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+Stripes*  1-bit  2-bit  4-bit
+Fig. 7. LM’s energy efficiency relative to BASE for fully-connected layers
+with 100% accuracy.
+NiN AlexNet Google VGGS VGGM VGG19 Geo
+0
+1
+2
+3
+4
+Stripes*
+  1-bit
+  2-bit
+  4-bit
+dynamic precision
+Fig. 8. Relative performance of LM using dynamic precisions for activations
+with 100% accuracy. Solid colors: performance not using dynamic precisions.
+dynamic precision technique on average improves performance
+by 3.32×, 3.18×, and 2.82× for LM1b, LM2b, and LM4b,
+compared to the 2.44× average improvement with Stripes*.
+V. RELATED WORK
+Bit-serial neural network (NN) hardware has been proposed
+before [14], [15]. While its performance scales with the input
+data precision, it is slower than an equivalently configured bit-
+parallel engine. For example, one design [14], takes (4 × p)
+cycles to multiply per weight and activation product where p
+is the precision of the weights.
+In recent years, several DNN hardware accelerators have
+been proposed, however, in the interest of space we limit
+attention to the most related to this work. Stripes [5], [16]
+processes activations bit-serially and reduces execution time
+on CVLs only. Loom outperforms Stripes on both CVLs and
+FCLs: it exploits both weight and activation precisions in
+CVLs and weight precision in FCLs. Pragmatic’s performance
+for the CVLs depends only on the number of activation
+bits that are 1 [17], but does not improve performance for
+FCLs. Further performance improvement may be possible by
+combining Pragmatic’s approach with LM’s. Proteus exploits
+per layer precisions reducing memory footprint and bandwidth.
+but requires crossbars per input weight to convert from the
+storage format to the one used by the bit-parallel compute
+engines [18]. Loom obviates the need for such a conversion and
+the corresponding crossbars. Hardwired NN implementations
+where the whole network is implemented directly in hardware
+naturally exploit per layer precisions [19]. Loom does not
+require that the whole network fit on chip nor does it hardwire
+the per layer precisions at design time.
+VI. CONCLUSION
+This work presented Loom, a hardware inference accelerator
+for DNNs whose execution time for the convolutional and the
+fully-connected layers scales inversely proportionally with the
+precision p used to represent the input data. LM can trade-
+off accuracy vs. performance and energy efficiency on the fly.
+The experimental results show that, on average LM is 2.34×
+faster and 2.23× more energy-efficient than a conventional bit-
+parallel accelerator. We targeted the available HBM2 interface
+and devices. However, we expect that LM will scale well to
+future HBM revisions.
+REFERENCES
+[1] Y. Chen, T. Luo, S. Liu, S. Zhang, L. He, J. Wang, L. Li, T. Chen,
+Z. Xu, N. Sun, and O. Temam, “Dadiannao: A machine-learning super-
+computer,” in Microarchitecture (MICRO), 2014 47th Annual IEEE/ACM
+International Symposium on, Dec 2014, pp. 609–622.
+[2] R. B. Girshick, J. Donahue, T. Darrell, and J. Malik, “Rich feature
+hierarchies for accurate object detection and semantic segmentation,”
+CoRR, vol. abs/1311.2524, 2013.
+[3] A. Y. Hannun, C. Case, J. Casper, B. C. Catanzaro, G. Diamos,
+E. Elsen, R. Prenger, S. Satheesh, S. Sengupta, A. Coates, and A. Y.
+Ng, “Deep speech: Scaling up end-to-end speech recognition,” CoRR,
+vol. abs/1412.5567, 2014.
+[4] J. Hruska, “Samsung announces mass production of next-generation
+HBM2 memory,” https://www.extremetech.com/extreme/221473-
+samsung-announces-mass-production-of-next-generation-hbm2-
+memory, 2016.
+[5] P. Judd, J. Albericio, T. Hetherington, T. Aamodt, and A. Moshovos,
+“Stripes: Bit-serial Deep Neural Network Computing ,” in Proc. of the
+49th Annual IEEE/ACM Intl’ Symposium on Microarchitecture, 2016.
+[6] Synopsys, “Design Compiler,” http://www.synopsys.com/Tools/
+Implementation/RTLSynthesis/DesignCompiler/Pages.
+[7] Cadence, “Encounter RTL Compiler,”
+https://www.cadence.com/content/cadence-
+www/global/en US/home/training/all-courses/84441.html.
+[8] N. Muralimanohar and R. Balasubramonian, “Cacti 6.0: A tool to
+understand large caches.”
+[9] M. Poremba, S. Mittal, D. Li, J. Vetter, and Y. Xie, “Destiny: A tool for
+modeling emerging 3d nvm and edram caches,” in Design, Automation
+Test in Europe Conference Exhibition, March 2015.
+[10] P. Judd, J. Albericio, T. Hetherington, T. Aamodt, N. E. Jerger, R. Ur-
+tasun, and A. Moshovos, “Reduced-Precision Strategies for Bounded
+Memory in Deep Neural Nets ,” arXiv:1511.05236v4 [cs.LG] , 2015.
+[11] Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Girshick,
+S. Guadarrama, and T. Darrell, “Caffe: Convolutional architecture for
+fast feature embedding,” arXiv preprint arXiv:1408.5093, 2014.
+[12] Y. Jia, “Caffe model zoo,” https://github.com/BVLC/caffe/wiki/Model-
+Zoo, 2015.
+[13] A. Delmas, P. Judd, S. Sharify, and A. Moshovos, “Dynamic stripes:
+Exploiting the dynamic precision requirements of activation values in
+neural networks,” arXiv preprint arXiv:1706.00504, 2017.
+[14] B. Svensson and T. Nordstrom, “Execution of neural network algorithms
+on an array of bit-serial processors,” in Pattern Recognition, 1990.
+Proceedings., 10th International Conference on, vol. 2. IEEE, 1990.
+[15] A. F. Murray, A. V. Smith, and Z. F. Butler, “Bit-serial neural networks,”
+in Neural Information Processing Systems, 1988, pp. 573–583.
+[16] P. Judd, J. Albericio, and A. Moshovos, “Stripes: Bit-serial Deep Neural
+Network Computing ,” Computer Architecture Letters, 2016.
+[17] J. Albericio, P. Judd, A. D. Lascorz, S. Sharify, and A. Moshovos,
+“Bit-pragmatic deep neural network computing,” Arxiv, vol.
+arXiv:1610.06920 [cs.LG], 2016.
+[18] P. Judd, J. Albericio, T. Hetherington, T. M. Aamodt, N. E. Jerger,
+and A. Moshovos, “Proteus: Exploiting numerical precision variability
+in deep neural networks,” in Proceedings of the 2016 International
+Conference on Supercomputing. ACM, 2016, p. 23.
+[19] T. Szabo, L. Antoni, G. Horvath, and B. Feher, “A full-parallel digital
+implementation for pre-trained NNs,” in IJCNN 2000, Proceedings of the
+IEEE-INNS-ENNS International Joint Conference on Neural Networks,
+2000, vol. 2, 2000, pp. 49–54 vol.2.
+

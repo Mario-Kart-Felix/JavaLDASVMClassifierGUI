@@ -1,0 +1,1473 @@
+Fast Algorithms for Mining Association Rules
+Rakesh Agrawal Ramakrishnan Srikant
+IBM Almaden Research Center
+650 Harry Road, San Jose, CA 95120
+Abstract
+We consider the problem of discovering association rules between items in a large database
+of sales transactions. We present two new algorithms for solving this problem that are funda-
+mentally dierent from the known algorithms. Experiments with synthetic as well as real-life
+data show that these algorithms outperform the known algorithms by factors ranging from three
+for small problems to more than an order of magnitude for large problems. We also show how
+the best features of the two proposed algorithms can be combined into a hybrid algorithm,
+called AprioriHybrid. Scale-up experiments show that AprioriHybrid scales linearly with the
+number of transactions. AprioriHybrid also has excellent scale-up properties with respect to the
+transaction size and the number of items in the database.
+1 Introduction
+Database mining is motivated by the decision support problem faced by most large retail orga-
+nizations [S+93]. Progress in bar-code technology has made it possible for retail organizations to
+collect and store massive amounts of sales data, referred to as the basket data. A record in such
+data typically consists of the transaction date and the items bought in the transaction. Success-
+ful organizations view such databases as important pieces of the marketing infrastructure [Ass92].
+They are interested in instituting information-driven marketing processes, managed by database
+technology, that enable marketers to develop and implement customized marketing programs and
+strategies [Ass90].
+The problem of mining association rules over basket data was introduced in [AIS93b]. An
+example of such a rule might be that 98% of customers that purchase tires and auto accessories also
+get automotive services done. Finding all such rules is valuable for cross-marketing and attached
+mailing applications. Other applications include catalog design, add-on sales, store layout, and
+customer segmentation based on buying patterns. The databases involved in these applications are
+very large. It is imperative, therefore, to have fast algorithms for this task.
+Visiting from the Department of Computer Science, University of Wisconsin, Madison.
+1
+The following is a formal statement of the problem [AIS93b]: Let I = fi1; i2; . . . ; img be a set
+of literals, called items. Let D be a set of transactions, where each transaction T is a set of items
+such that T  I. Associated with each transaction is a unique identier, called its TID. We say
+that a transaction T contains X , a set of some items in I, if X  T . An association rule is an
+implication of the form X =) Y , where X  I, Y  I, and X \ Y = ;. The rule X =) Y holds
+in the transaction set D with condence c if c% of transactions in D that contain X also contain
+Y . The rule X =) Y has support s in the transaction set D if s% of transactions in D contain
+X [ Y . Our rules are somewhat more general than in [AIS93b] in that we allow a consequent to
+have more than one item.
+Given a set of transactions D, the problem of mining association rules is to generate all asso-
+ciation rules that have support and condence greater than the user-specied minimum support
+(called minsup) and minimum condence (called minconf ) respectively. Our discussion is neutral
+with respect to the representation of D. For example, D could be a data le, a relational table, or
+the result of a relational expression.
+An algorithm for nding all association rules, henceforth referred to as the AIS algorithm, was
+presented in [AIS93b]. Another algorithm for this task, called the SETM algorithm, has been
+proposed in [HS93]. In this paper, we present two new algorithms, Apriori and AprioriTid, that
+dier fundamentally from these algorithms. We present experimental results, using both synthetic
+and real-life data, showing that the proposed algorithms always outperform the earlier algorithms.
+The performance gap is shown to increase with problem size, and ranges from a factor of three
+for small problems to more than an order of magnitude for large problems. We then discuss
+how the best features of Apriori and AprioriTid can be combined into a hybrid algorithm, called
+AprioriHybrid. Experiments show that the AprioriHybrid has excellent scale-up properties, opening
+up the feasibility of mining association rules over very large databases.
+The problem of nding association rules falls within the purview of database mining [AIS93a]
+[ABN92] [HS94] [MKKR92] [S+93] [Tsu90], also called knowledge discovery in databases [HCC92]
+[Lub89] [PS91b]. Related, but not directly applicable, work includes the induction of classica-
+tion rules [BFOS84] [Cat91] [FWD93] [HCC92] [Qui93], discovery of causal rules [CH92] [Pea92],
+learning of logical denitions [MF92] [Qui90], tting of functions to data [LSBZ87] [Sch90], and
+clustering [ANB92] [C+88] [Fis87]. The closest work in the machine learning literature is the KID3
+algorithm presented in [PS91a]. If used for nding all association rules, this algorithm will make
+as many passes over the data as the number of combinations of items in the antecedent, which
+is exponentially large. Related work in the database literature is the work on inferring functional
+dependencies from data [Bit92] [MR87]. Functional dependencies are rules requiring strict satis-
+faction. Consequently, having determined a dependency X ! A, the algorithms in [Bit92] [MR87]
+2
+consider any other dependency of the form X + Y ! A redundant and do not generate it. The
+association rules we consider are probabilistic in nature. The presence of a rule X ! A does not
+necessarily mean that X + Y ! A also holds because the latter may not have minimum support.
+Similarly, the presence of rules X ! Y and Y ! Z does not necessarily mean that X ! Z holds
+because the latter may not have minimum condence.
+There has been work on quantifying the \usefulness" or \interestingness" of a rule [PS91a].
+What is useful or interesting is often application-dependent. The need for a human in the loop
+and providing tools to allow human guidance of the rule discovery process has been articulated, for
+example, in [B+93] [KI91] [Tsu90]. We do not discuss these issues in this paper, except to point
+out that these are necessary features of a rule discovery system that may use our algorithms as the
+engine of the discovery process.
+1.1 Problem Decomposition and Paper Organization
+The problem of discovering all association rules can be decomposed into two subproblems [AIS93b]:
+1. Find all sets of items (itemsets) that have transaction support above minimum support. The
+support for an itemset is the number of transactions that contain the itemset. Itemsets with
+minimum support are called large itemsets, and all others small itemsets. In Section 2, we give
+new algorithms, Apriori and AprioriTid, for solving this problem.
+2. Use the large itemsets to generate the desired rules. We give algorithms for this problem in Sec-
+tion 3. The general idea is that if, say, ABCD and AB are large itemsets, then we can determine
+if the rule AB =) CD holds by computing the ratio conf = support(ABCD)/support(AB).
+If conf  minconf, then the rule holds. (The rule will surely have minimum support because
+ABCD is large.)
+Unlike [AIS93b], where rules were limited to only one item in the consequent, we allow multiple
+items in the consequent. An example of such a rule might be that in 58% of the cases, a person
+who orders a comforter also orders a at sheet, a tted sheet, a pillow case, and a rue. The
+algorithms in Section 3 generate such multi-consequent rules.
+In Section 4, we show the relative performance of the proposed Apriori and AprioriTid algo-
+rithms against the AIS [AIS93b] and SETM [HS93] algorithms. To make the paper self-contained,
+we include an overview of the AIS and SETM algorithms in this section. We also describe how the
+Apriori and AprioriTid algorithms can be combined into a hybrid algorithm, AprioriHybrid, and
+demonstrate the scale-up properties of this algorithm. We conclude by pointing out some related
+open problems in Section 5.
+3
+2 Discovering Large Itemsets
+Algorithms for discovering large itemsets make multiple passes over the data. In the rst pass, we
+count the support of individual items and determine which of them are large, i.e. have minimum
+support. In each subsequent pass, we start with a seed set of itemsets found to be large in the
+previous pass. We use this seed set for generating new potentially large itemsets, called candidate
+itemsets, and count the actual support for these candidate itemsets during the pass over the data.
+At the end of the pass, we determine which of the candidate itemsets are actually large, and they
+become the seed for the next pass. This process continues until no new large itemsets are found.
+The Apriori and AprioriTid algorithms we propose dier fundamentally from the AIS [AIS93b]
+and SETM [HS93] algorithms in terms of which candidate itemsets are counted in a pass and
+in the way that those candidates are generated. In both the AIS and SETM algorithms (see
+Sections 4.1 and 4.2 for a review), candidate itemsets are generated on-the-y during the pass
+as data is being read. Specically, after reading a transaction, it is determined which of the
+itemsets found large in the previous pass are present in the transaction. New candidate itemsets
+are generated by extending these large itemsets with other items in the transaction. However, as
+we will see, the disadvantage is that this results in unnecessarily generating and counting too many
+candidate itemsets that turn out to be small.
+The Apriori and AprioriTid algorithms generate the candidate itemsets to be counted in a pass
+by using only the itemsets found large in the previous pass { without considering the transactions
+in the database. The basic intuition is that any subset of a large itemset must be large. Therefore,
+the candidate itemsets having k items can be generated by joining large itemsets having k 1 items,
+and deleting those that contain any subset that is not large. This procedure results in generation
+of a much smaller number of candidate itemsets.
+The AprioriTid algorithm has the additional property that the database is not used at all for
+counting the support of candidate itemsets after the rst pass. Rather, an encoding of the candidate
+itemsets used in the previous pass is employed for this purpose. In later passes, the size of this
+encoding can become much smaller than the database, thus saving much reading eort. We will
+explain these points in more detail when we describe the algorithms.
+Notation We assume that items in each transaction are kept sorted in their lexicographic order.
+It is straightforward to adapt these algorithms to the case where the database D is kept normalized
+and each database record is a <TID, item> pair, where TID is the identier of the corresponding
+transaction.
+We call the number of items in an itemset its size, and call an itemset of size k a k-itemset.
+Items within an itemset are kept in lexicographic order. We use the notation c[1]  c[2]  . . .  c[k]
+4
+Table 1: Notation
+k-itemset An itemset having k items.
+Set of large k-itemsets (those with minimum support).
+Lk Each member of this set has two elds: i) itemset and ii) support count.
+Set of candidate k-itemsets (potentially large itemsets).
+Ck Each member of this set has two elds: i) itemset and ii) support count.
+Set of candidate k-itemsets when the TIDs of the generating transactions
+Ck are kept associated with the candidates.
+to represent a k-itemset c consisting of items c[1]; c[2]; . . .c[k], where c[1] < c[2] < . . . < c[k]. If
+c = X Y and Y is an m-itemset, we also call Y an m-extension of X . Associated with each itemset
+is a count eld to store the support for this itemset. The count eld is initialized to zero when the
+itemset is rst created.
+We summarize in Table 1 the notation used in the algorithms. The set Ck is used by AprioriTid
+and will be further discussed when we describe this algorithm.
+2.1 Algorithm Apriori
+Figure 1 gives the Apriori algorithm. The rst pass of the algorithm simply counts item occurrences
+to determine the large 1-itemsets. A subsequent pass, say pass k, consists of two phases. First, the
+large itemsets Lk 1 found in the (k 1)th pass are used to generate the candidate itemsets Ck , using
+the apriori-gen function described in Section 2.1.1. Next, the database is scanned and the support
+of candidates in Ck is counted. For fast counting, we need to eciently determine the candidates
+in Ck that are contained in a given transaction t. Section 2.1.2 describes the subset function used
+for this purpose. Section 2.1.3 discusses buer management.
+1) L1 = flarge 1-itemsetsg;
+2) for ( k = 2; Lk 1 6= ;; k++ ) do begin
+3) Ck = apriori-gen(Lk 1); // New candidates { see Section 2.1.1
+4) forall transactions t 2 D do begin
+5) Ct = subset(Ck, t); // Candidates contained in t { see Section 2.1.2
+6) forall candidates c 2 Ct do
+7) c:count++;
+8) end
+9) Lk = fc 2 Ck j c:count  minsupg
+10) end
+11) Answer =
+S
+k
+Lk;
+Figure 1: Algorithm Apriori
+5
+2.1.1 Apriori Candidate Generation
+The apriori-gen function takes as argument Lk 1, the set of all large (k 1)-itemsets. It returns
+a superset of the set of all large k-itemsets. The function works as follows. 1 First, in the join step,
+we join Lk 1 with Lk 1:
+insert into Ck
+select p.item1, p.item2, ..., p.itemk 1, q.itemk 1
+from Lk 1 p, Lk 1 q
+where p.item1 = q.item1, . . ., p.itemk 2 = q.itemk 2, p.itemk 1 < q.itemk 1;
+Next, in the prune step, we delete all itemsets c 2 Ck such that some (k 1)-subset of c is not in
+Lk 1:
+forall itemsets c 2 Ck do
+forall (k 1)-subsets s of c do
+if (s 62 Lk 1) then
+delete c from Ck;
+Example Let L3 be ff1 2 3g, f1 2 4g, f1 3 4g, f1 3 5g, f2 3 4gg. After the join step, C4 will be
+ff1 2 3 4g, f1 3 4 5g g. The prune step will delete the itemset f1 3 4 5g because the itemset f1 4
+5g is not in L3. We will then be left with only f1 2 3 4g in C4.
+Contrast this candidate generation with the one used in the AIS and SETM algorithms. In
+pass k of these algorithms (see Section 4 for details), a database transaction t is read and it is
+determined which of the large itemsets in Lk 1 are present in t. Each of these large itemsets l is
+then extended with all those large items that are present in t and occur later in the lexicographic
+ordering than any of the items in l. Continuing with the previous example, consider a transaction
+f1 2 3 4 5g. In the fourth pass, AIS and SETM will generate two candidates, f1 2 3 4g and f1
+2 3 5g, by extending the large itemset f1 2 3g. Similarly, an additional three candidate itemsets
+will be generated by extending the other large itemsets in L3, leading to a total of 5 candidates
+for consideration in the fourth pass. Apriori, on the other hand, generates and counts only one
+itemset, f1 3 4 5g, because it concludes a priori that the other combinations cannot possibly have
+minimum support.
+1Concurrent to our work, the following two-step candidate generation procedure has been proposed in [MTV94]:
+C
+0
+k = fX [X
+0jX;X 0 2 Lk 1; jX \X
+0j = k   2g
+Ck = fX 2 C
+0
+kjX contains k members of Lk 1g
+These two steps are similar to our join and prune steps respectively. However, in general, step 1 would produce a
+superset of the candidates produced by our join step. For example, if L2 were ff1 2g, f2, 3gg, then step 1 of [MTV94]
+will generate the candidate f1 2 3g, whereas our join step will not generate any candidate.
+6
+Correctness We need to show that Ck  Lk . Clearly, any subset of a large itemset must also
+have minimum support. Hence, if we extended each itemset in Lk 1 with all possible items and
+then deleted all those whose (k 1)-subsets were not in Lk 1, we would be left with a superset of
+the itemsets in Lk.
+The join is equivalent to extending Lk 1 with each item in the database and then deleting those
+itemsets for which the (k 1)-itemset obtained by deleting the (k 1)th item is not in Lk 1. The
+condition p.itemk 1 < q.itemk 1 simply ensures that no duplicates are generated. Thus, after the
+join step, Ck  Lk. By similar reasoning, the prune step, where we delete from Ck all itemsets
+whose (k 1)-subsets are not in Lk 1, also does not delete any itemset that could be in Lk.
+Variation: Counting Candidates of Multiple Sizes in One Pass Rather than counting
+only candidates of size k in the kth pass, we can also count the candidates C0
+k+1
+, where C0
+k+1
+is
+generated from Ck , etc. Note that C0k+1  Ck+1 since Ck+1 is generated from Lk . This variation can
+pay o in the later passes when the cost of counting and keeping in memory additional C0
+k+1
+ Ck+1
+candidates becomes less than the cost of scanning the database.
+Membership Test The prune step requires testing that all (k 1)-subsets of a newly generated
+k-candidate-itemset are present in Lk 1. To make this membership test fast, large itemsets are
+stored in a hash table.
+2.1.2 Subset Function
+Candidate itemsets Ck are stored in a hash-tree. A node of the hash-tree either contains a list of
+itemsets (a leaf node) or a hash table (an interior node). In an interior node, each bucket of the
+hash table points to another node. The root of the hash-tree is dened to be at depth 1. An interior
+node at depth d points to nodes at depth d+1. Itemsets are stored in the leaves. When we add an
+itemset c, we start from the root and go down the tree until we reach a leaf. At an interior node
+at depth d, we decide which branch to follow by applying a hash function to the dth item of the
+itemset. All nodes are initially created as leaf nodes. When the number of itemsets in a leaf node
+exceeds a specied threshold, the leaf node is converted to an interior node.
+Starting from the root node, the subset function nds all the candidates contained in a trans-
+action t as follows. If we are at a leaf, we nd which of the itemsets in the leaf are contained in t
+and add references to them to the answer set. If we are at an interior node and we have reached
+it by hashing the item i, we hash on each item that comes after i in t and recursively apply this
+procedure to the node in the corresponding bucket. For the root node, we hash on every item in t.
+To see why the subset function returns the desired set of references, consider what happens at
+the root node. For any itemset c contained in transaction t, the rst item of c must be in t. At
+7
+the root, by hashing on every item in t, we ensure that we only ignore itemsets that start with an
+item not in t. Similar arguments apply at lower depths. The only additional factor is that, since
+the items in any itemset are ordered, if we reach the current node by hashing the item i, we only
+need to consider the items in t that occur after i.
+If k is the size of a candidate itemset in the hash-tree, we can nd in O(k) time whether
+the itemset is contained in a transaction by using a temporary bitmap. Each bit of the bitmap
+corresponds an item. The bitmap is created once for the data structure, and reinitialized for each
+transaction. This initialization takes O(size(transaction)) time for each transaction.
+2.1.3 Buer Management
+In the candidate generation phase of pass k, we need storage for large itemsets Lk 1 and the
+candidate itemsets Ck . In the counting phase, we need storage for Ck and at least one page to
+buer the database transactions.
+First, assume that Lk 1 ts in memory but that the set of candidates Ck does not. The apriori-
+gen function is modied to generate as many candidates of Ck as will t in the buer and the
+database is scanned to count the support of these candidates. Large itemsets resulting from these
+candidates are written to disk, while those candidates without minimum support are deleted. This
+procedure is repeated until all of Ck has been counted.
+If Lk 1 does not t in memory either, we externally sort Lk 1. We bring into memory a block of
+Lk 1 in which the rst k  2 items are the same. We now generate candidates using this block. We
+keep reading blocks of Lk 1 and generating candidates until the memory lls up, and then make a
+pass over the data. This procedure is repeated until all of Ck has been counted. Unfortunately, we
+can no longer prune those candidates whose subsets are not in Lk 1, as the whole of Lk 1 is not
+available in memory.
+2.2 Algorithm AprioriTid
+The AprioriTid algorithm, shown in Figure 2, also uses the apriori-gen function (given in Sec-
+tion 2.1.1) to determine the candidate itemsets before the pass begins. The interesting feature of
+this algorithm is that the database D is not used for counting support after the rst pass. Rather,
+the set Ck is used for this purpose. Each member of the set Ck is of the form < TID; fXkg >,
+where each Xk is a potentially large k-itemset present in the transaction with identier TID. For
+k = 1, C1 corresponds to the database D, although conceptually each item i is replaced by the
+itemset fig. For k > 1, Ck is generated by the algorithm (step 10). The member of Ck corre-
+sponding to transaction t is <t:TID, fc 2 Ck jc contained in tg>. If a transaction does not contain
+any candidate k-itemset, then Ck will not have an entry for this transaction. Thus, the number of
+8
+entries in Ck may be smaller than the number of transactions in the database, especially for large
+values of k. In addition, for large values of k, each entry may be smaller than the corresponding
+transaction because very few candidates may be contained in the transaction. However, for small
+values for k, each entry may be larger than the corresponding transaction because an entry in Ck
+includes all candidate k-itemsets contained in the transaction. We further explore this trade-o in
+Section 4.
+We establish the correctness of the algorithm in Section 2.2.1. In Section 2.2.2, we give the data
+structures used to implement the algorithm, and we discuss buer management in Section 2.2.3.
+1) L1 = flarge 1-itemsetsg;
+2) C1 = database D;
+3) for ( k = 2; Lk 1 6= ;; k++ ) do begin
+4) Ck = apriori-gen(Lk 1); // New candidates { see Section 2.1.1
+5) Ck = ;;
+6) forall entries t 2 Ck 1 do begin
+7) // determine candidate itemsets in Ck contained in the transaction with identier t.TID
+Ct = fc 2 Ck j (c   c[k]) 2 t:set-of-itemsets ^ (c  c[k 1]) 2 t.set-of-itemsetsg;
+8) forall candidates c 2 Ct do
+9) c:count++;
+10) if (Ct 6= ;) then Ck += < t:TID; Ct >;
+11) end
+12) Lk = fc 2 Ck j c:count  minsupg
+13) end
+14) Answer =
+S
+k
+Lk;
+Figure 2: Algorithm AprioriTid
+Example Consider the database in Figure 3 and assume that minimum support is 2 transactions.
+Calling apriori-gen with L1 at step 4 gives the candidate itemsets C2. In steps 6 through 10, we
+count the support of candidates in C2 by iterating over the entries in C1 and generate C2. The rst
+entry in C1 is f f1g f3g f4g g, corresponding to transaction 100. The Ct at step 7 corresponding
+to this entry t is f f1 3g g, because f1 3g is a member of C2 and both (f1 3g - f1g) and (f1 3g -
+f3g) are members of t.set-of-itemsets.
+Calling apriori-gen with L2 gives C3. Making a pass over the data with C2 and C3 generates
+C3. Note that there is no entry in C3 for the transactions with TIDs 100 and 400, since they do
+not contain any of the itemsets in C3. The candidate f2 3 5g in C3 turns out to be large and is the
+only member of L3. When we generate C4 using L3, it turns out to be empty, and we terminate.
+2.2.1 Correctness
+Rather than using the database transactions, AprioriTid uses the entries in Ck to count the support
+of candidates in Ck . To simplify the proof, we assume that in step 10 of AprioriTid, we always
+9
+Database
+TID Items
+100 1 3 4
+200 2 3 5
+300 1 2 3 5
+400 2 5
+C1
+TID Set-of-Itemsets
+100 f f1g, f3g, f4g g
+200 f f2g, f3g, f5g g
+300 f f1g, f2g, f3g, f5g g
+400 f f2g, f5g g
+L1
+Itemset Support
+f1g 2
+f2g 3
+f3g 3
+f5g 3
+C2
+Itemset
+f1 2g
+f1 3g
+f1 5g
+f2 3g
+f2 5g
+f3 5g
+C2
+TID Set-of-Itemsets
+100 f f1 3g g
+200 f f2 3g, f2 5g, f3 5g g
+300 f f1 2g, f1 3g, f1 5g,
+f2 3g, f2 5g, f3 5g g
+400 f f2 5g g
+L2
+Itemset Support
+f1 3g 2
+f2 3g 2
+f2 5g 3
+f3 5g 2
+C3
+Itemset
+f2 3 5g
+C3
+TID Set-of-Itemsets
+200 f f2 3 5g g
+300 f f2 3 5g g
+L3
+Itemset Support
+f2 3 5g 2
+Figure 3: Example
+add <t.TID,Ct> to Ck, rather than adding an entry only when Ct is non-empty. For correctness,
+we need to establish that the set Ct generated in step 7 in the kth pass is the same as the set of
+candidate k-itemsets in Ck contained in the transaction with identier t.TID.
+We say that the set Ck is complete if 8t 2 Ck, t.set-of-itemsets includes all large k-itemsets
+contained in the transaction with identier t.TID. We say that the set Ck is correct if 8t 2 Ck,
+t.set-of-itemsets does not include any k-itemset not contained in the transaction with identier
+t.TID. The set Lk is correct if it is the same as the set of all large k-itemsets. We say that the set
+Ct generated in step 7 in the kth pass is correct if it is the same as the set of candidate k-itemsets
+in Ck contained in the transaction with identier t.TID.
+Lemma 1 8k > 1, if Ck 1 is correct and complete and Lk 1 is correct, then the set Ct generated
+in step 7 in the kth pass is the same as the set of candidate k-itemsets in Ck contained in the
+transaction with identier t.TID.
+By simple rewriting, a candidate itemset c = c[1]  c[2]  . . .  c[k] is present in transaction t.TID
+if and only if both c1 = (c   c[k]) and c2 = (c   c[k 1]) are in transaction t.TID. Since Ck was
+obtained by calling apriori-gen(Lk 1), all subsets of c 2 Ck must be large. So, c1 and c2 must be
+large itemsets. Thus, if c 2 Ck is contained in transaction t.TID, c
+1 and c2 must be members of
+t.set-of-itemsets since Ck 1 is complete Hence c will be a member of Ct. Since Ck 1 is correct, if
+10
+c1 (c2) is not present in transaction t.TID then c1 (c2) is not contained in t:set-of-itemsets. Hence,
+if c 2 Ck is not contained in transaction t.TID, c will not be a member of Ct. 2
+Lemma 2 8k > 1, if Lk 1 is correct and the set Ct generated in step 7 in the kth pass is the same
+as the set of candidate k-itemsets in Ck contained in the transaction with identier t.TID, then the
+set Ck is correct and complete.
+Since the apriori-gen function guarantees that Ck  Lk, the set Ct includes all large k-itemsets
+contained in t.TID. These are added in step 10 to Ck and hence Ck is complete. Since Ct only
+includes itemsets contained in the transaction t.TID, and only itemsets in Ct are added to Ck, it
+follows that Ck is correct. 2
+Theorem 1 8k > 1, the set Ct generated in step 7 in the kth pass is the same as the set of
+candidate k-itemsets in Ck contained in the transaction with identier t.TID.
+We rst prove by induction on k that the set Ck is correct and complete and Lk correct for all
+k  1. For k = 1, this is trivially true since C1 corresponds to the database D. By denition, L1
+is also correct. Assume this holds for k = n. From Lemma 1, the set Ct generated in step 7 in
+the (n+1)th pass will consist of exactly those itemsets in Cn+1 contained in the transaction with
+identier t.TID. Since the apriori-gen function guarantees that Cn+1  Ln+1 and Ct is correct,
+Ln+1 will be correct. >From Lemma 2, the set Cn+1 will be correct and complete.
+Since Ck is correct and complete and Lk correct for all k  1, the theorem follows directly from
+Lemma 1. 2
+2.2.2 Data Structures
+We assign each candidate itemset a unique number, called its ID. Each set of candidate itemsets
+Ck is kept in an array indexed by the IDs of the itemsets in Ck . A member of Ck is now of the
+form < TID; fIDg >. Each Ck is stored in a sequential structure.
+The apriori-gen function generates a candidate k-itemset ck by joining two large (k 1)-itemsets.
+We maintain two additional elds for each candidate itemset: i) generators and ii) extensions. The
+generators eld of a candidate itemset ck stores the IDs of the two large (k 1)-itemsets whose join
+generated ck. The extensions eld of an itemset ck stores the IDs of all the (k+1)-candidates that
+are extensions of ck. Thus, when a candidate ck is generated by joining l1k 1 and l
+2
+k 1
+, we save the
+IDs of l1
+k 1
+and l2
+k 1
+in the generators eld for ck. At the same time, the ID of ck is added to the
+extensions eld of l1
+k 1
+.
+We now describe how Step 7 of Figure 2 is implemented using the above data structures. Recall
+that the t.set-of-itemsets eld of an entry t in Ck 1 gives the IDs of all (k 1)-candidates contained
+11
+in transaction t.TID. For each such candidate ck 1 the extensions eld gives Tk, the set of IDs of
+all the candidate k-itemsets that are extensions of ck 1. For each ck in Tk, the generators eld
+gives the IDs of the two itemsets that generated ck. If these itemsets are present in the entry for
+t.set-of-itemsets, we can conclude that ck is present in transaction t.TID, and add ck to Ct.
+We actually need to store only l2
+k 1
+in the generators eld, since we reached ck starting from the
+ID of l1
+k 1
+in t. We omitted this optimization in the above description to simplify exposition. Given
+an ID and the data structures above, we can nd the associated candidate itemset in constant time.
+We can also nd in constant time whether or not an ID is present in the t.set-of-itemsets eld by
+using a temporary bitmap. Each bit of the bitmap corresponds to an ID in Ck . This bitmap is
+created once at the beginning of the pass and is reinitialized for each entry t of Ck .
+2.2.3 Buer Management
+In the kth pass, AprioriTid needs memory for Lk 1 and Ck during candidate generation. During
+the counting phase, it needs memory for Ck 1, Ck , and a page each for Ck 1 and Ck. Note that
+the entries in Ck 1 are needed sequentially and that the entries in Ck can be written to disk as
+they are generated.
+At the time of candidate generation, when we join Lk 1 with itself, we ll up roughly half the
+buer with candidates. This allows us to keep the relevant portions of both Ck and Ck 1 in memory
+during the counting phase. In addition, we ensure that all candidates with the same rst (k 1)
+items are generated at the same time.
+The computation is now eectively partitioned because none of the candidates in memory that
+turn out to large at the end of the pass will join with any of the candidates not yet generated to
+derive potentially large itemsets. Hence we can assume that the candidates in memory are the only
+candidates in Ck and nd all large itemsets that are extensions of candidates in Ck by running
+the algorithm to completion. This may cause further partitioning of the computation downstream.
+Having thus run the algorithm to completion, we return to Lk 1, generate some more candidates in
+Ck , count them, and so on. Note that the prune step of the apriori-gen function cannot be applied
+after partitioning because we do not know all the large k-itemsets.
+When Lk does not t in memory, we need to externally sort Lk as in the buer management
+scheme used for Apriori.
+3 Discovering Rules
+The association rules that we consider here are somewhat more general than in [AIS93b] in that
+we allow a consequent to have more than one item; rules in [AIS93b] were limited to single item
+12
+consequents. We rst give a straightforward generalization of the algorithm in [AIS93b] and then
+present a faster algorithm.
+To generate rules, for every large itemset l, we nd all non-empty subsets of l. For every such
+subset a, we output a rule of the form a =) (l   a) if the ratio of support(l) to support(a) is at
+least minconf. We consider all subsets of l to generate rules with multiple consequents. Since the
+large itemsets are stored in hash tables, the support counts for the subset itemsets can be found
+eciently.
+We can improve the above procedure by generating the subsets of a large itemset in a recursive
+depth-rst fashion. For example, given an itemset ABCD, we rst consider the subset ABC, then
+AB, etc. Then if a subset a of a large itemset l does not generate a rule, the subsets of a need
+not be considered for generating rules using l. For example, if ABC =) D does not have enough
+condence, we need not check whether AB =) CD holds. We do not miss any rules because the
+support of any subset ~a of a must be as great as the support of a. Therefore, the condence of the
+rule ~a =) (l  ~a) cannot be more than the condence of a =) (l  a). Hence, if a did not yield a
+rule involving all the items in l with a as the antecedent, neither will ~a. The following algorithm
+embodies these ideas:
+// Simple Algorithm
+forall large itemsets lk, k  2 do
+call genrules(lk , lk);
+// The genrules generates all valid rules ~a =) (lk   ~a), for all ~a  am
+procedure genrules(lk: large k-itemset, am: large m-itemset)
+1) A = f(m 1)-itemsets am 1 j am 1  amg;
+2) forall am 1 2 A do begin
+3) conf = support(lk)/support(am 1);
+4) if (conf  minconf) then begin
+7) output the rule am 1 =) (lk   am 1), with condence = conf and support = support(lk);
+8) if (m   1 > 1) then
+9) call genrules(lk , am 1); // to generate rules with subsets of am 1 as the antecedents
+10) end
+11) end
+3.1 A Faster Algorithm
+We showed earlier that if a =) (l  a) does not hold, neither does ~a =) (l  ~a) for any ~a  a. By
+rewriting, it follows that for a rule (l   c) =) c to hold, all rules of the form (l   ~c) =) ~c must
+also hold, where ~c is a non-empty subset of c. For example, if the rule AB =) CD holds, then the
+rules ABC =) D and ABD =) C must also hold.
+Consider the above property that for a given large itemset, if a rule with consequent c holds
+then so do rules with consequents that are subsets of c. This is similar to the property that if an
+13
+itemset is large then so are all its subsets. >From a large itemset l, therefore, we rst generate all
+rules with one item in the consequent. We then use the consequents of these rules and the function
+apriori-gen in Section 2.1.1 to generate all possible consequents with two items that can appear in a
+rule generated from l, etc. An algorithm using this idea is given below. The rules having one-item
+consequents in step 2 of this algorithm can be found by using a modied version of the preceding
+genrules function in which steps 8 and 9 are deleted to avoid the recursive call.
+// Faster Algorithm
+1) forall large k-itemsets lk, k  2 do begin
+2) H1 = f consequents of rules derived from lk with one item in the consequent g;
+3) call ap-genrules(lk , H1);
+4) end
+procedure ap-genrules(lk: large k-itemset, Hm: set of m-item consequents)
+if (k > m + 1) then begin
+Hm+1 = apriori-gen(Hm);
+forall hm+1 2 Hm+1 do begin
+conf = support(lk)/support(lk   hm+1);
+if (conf  minconf) then
+output the rule (lk   hm+1) =) hm+1 with condence = conf and support = support(lk);
+else
+delete hm+1 from Hm+1;
+end
+call ap-genrules(lk , Hm+1);
+end
+As an example of the advantage of this algorithm, consider a large itemset ABCDE. Assume
+that ACDE =) B and ABCE =) D are the only one-item consequent rules derived from this
+itemset that have the minimum condence. If we use the simple algorithm, the recursive call
+genrules(ABCDE, ACDE) will test if the two-item consequent rules ACD =) BE, ADE =) BC,
+CDE =) BA, and ACE =) BD hold. The rst of these rules cannot hold, because E  BE,
+and ABCD =) E does not have minimum condence. The second and third rules cannot hold
+for similar reasons. The call genrules(ABCDE, ABCE) will test if the rules ABC =) DE,
+ABE =) DC, BCE =) DA and ACE =) BD hold, and will nd that the rst three of these
+rules do not hold. In fact, the only two-item consequent rule that can possibly hold is ACE =) BD,
+where B and D are the consequents in the valid one-item consequent rules. This is the only rule
+that will be tested by the faster algorithm.
+4 Performance
+To assess the relative performance of the algorithms for discovering large itemsets, we performed
+several experiments on an IBM RS/6000 530H workstation with a CPU clock rate of 33 MHz, 64
+14
+MB of main memory, and running AIX 3.2. The data resided in the AIX le system and was stored
+on a 2GB SCSI 3.5" drive, with measured sequential throughput of about 2 MB/second.
+We rst give an overview of the AIS [AIS93b] and SETM [HS93] algorithms against which we
+compare the performance of the Apriori and AprioriTid algorithms. We then describe the synthetic
+datasets used in the performance evaluation and show the performance results. Next, we show the
+performance results for three real-life datasets obtained from a retail and a direct mail company.
+Finally, we describe how the best performance features of Apriori and AprioriTid can be combined
+into an AprioriHybrid algorithm and demonstrate its scale-up properties.
+4.1 The AIS Algorithm
+Figure 4 summarizes the essence of the AIS algorithm (see [AIS93b] for further details). Candidate
+itemsets are generated and counted on-the-y as the database is scanned. After reading a trans-
+action, it is determined which of the itemsets that were found to be large in the previous pass are
+contained in this transaction (step 5). New candidate itemsets are generated by extending these
+large itemsets with other items in the transaction (step 7). A large itemset l is extended with
+only those items that are large and occur later in the lexicographic ordering of items than any
+of the items in l. The candidates generated from a transaction are added to the set of candidate
+itemsets maintained for the pass, or the counts of the corresponding entries are increased if they
+were created by an earlier transaction (step 9).
+1) L1 = flarge 1-itemsetsg;
+2) for ( k = 2; Lk 1 6= ;; k++ ) do begin
+3) Ck = ;;
+4) forall transactions t 2 D do begin
+5) Lt = subset(Lk 1, t); // Large itemsets contained in t
+6) forall large itemsets lt 2 Lt do begin
+7) Ct = 1-extensions of lt contained in t; // Candidates contained in t
+8) forall candidates c 2 Ct do
+9) if (c 2 Ck) then
+add 1 to the count of c in the corresponding entry in Ck
+else
+add c to Ck with a count of 1;
+10) end
+11) Lk = fc 2 Ck j c:count  minsupg
+12) end
+13) Answer =
+S
+k
+Lk;
+Figure 4: Algorithm AIS
+Data Structures The data structures required for maintaining large and candidate itemsets
+were not specied in [AIS93b]. We store the large itemsets in a dynamic multi-level hash table to
+make the subset operation in step 5 fast, using the algorithm described in Section 2.1.2. Candidate
+15
+itemsets are kept in a hash table associated with the respective large itemsets from which they
+originate in order to make the membership test in step 9 fast.
+Buer Management When a newly generated candidate itemset causes the buer to overow,
+we discard from memory the corresponding large itemset and all candidate itemsets generated from
+it. This reclamation procedure is executed as often as necessary during a pass. The large itemsets
+discarded in a pass are extended in the next pass. This technique is a simplied version of the
+buer management scheme presented in [AIS93b].
+4.2 The SETM Algorithm
+The SETM algorithm [HS93] was motivated by the desire to use SQL to compute large itemsets. Our
+description of this algorithm in Figure 5 uses the same notation as used for the other algorithms,
+but is functionally identical to the SETM algorithm presented in [HS93]. Ck (Lk) in Figure 5
+represents the set of candidate (large) itemsets in which the TIDs of the generating transactions
+have been associated with the itemsets. Each member of these sets is of the form < TID; itemset >.
+Like AIS, the SETM algorithm also generates candidates on-the-y based on transactions read
+from the database. It thus generates and counts every candidate itemset that the AIS algorithm
+generates. However, to use the standard SQL join operation for candidate generation, SETM
+separates candidate generation from counting. It saves a copy of the candidate itemset together
+with the TID of the generating transaction in a sequential structure (step 9). At the end of the
+pass, the support count of candidate itemsets is determined by sorting (step 12) and aggregating
+this sequential structure (step 13).
+SETM remembers the TIDs of the generating transactions with the candidate itemsets. To
+avoid needing a subset operation, it uses this information to determine the large itemsets contained
+in the transaction read (step 6). Lk  Ck and is obtained by deleting those candidates that do not
+have minimum support (step 13). Assuming that the database is sorted in TID order, SETM can
+easily nd the large itemsets contained in a transaction in the next pass by sorting Lk on TID (step
+15). In fact, it needs to visit every member of Lk only once in the TID order, and the candidate
+generation in steps 5 through 11 can be performed using the relational merge-join operation [HS93].
+The disadvantage of this approach is mainly due to the size of candidate sets Ck . For each
+candidate itemset, the candidate set now has as many entries as the number of transactions in
+which the candidate itemset is present. Moreover, when we are ready to count the support for
+candidate itemsets at the end of the pass, Ck is in the wrong order and needs to be sorted on
+itemsets (step 12). After counting and pruning out small candidate itemsets that do not have
+minimum support, the resulting set Lk needs another sort on TID (step 15) before it can be used
+16
+for generating candidates in the next pass.
+1) L1 = flarge 1-itemsetsg;
+2) L1 = fLarge 1-itemsets together with the TIDs in which they appear, sorted on TIDg;
+3) for ( k = 2; Lk 1 6= ;; k++ ) do begin
+4) Ck = ;;
+5) forall transactions t 2 D do begin
+6) Lt = fl 2 Lk 1 j l:TID = t:TIDg; // Large (k 1)-itemsets contained in t
+7) forall large itemsets lt 2 Lt do begin
+8) Ct = 1-extensions of lt contained in t; // Candidates in t
+9) Ck += f< t:TID; c > j c 2 Ctg;
+10) end
+11) end
+12) sort Ck on itemsets;
+13) delete all itemsets c 2 Ck for which c.count < minsup giving Lk;
+14) Lk = f< l.itemset, count of l in Lk > j l 2 Lkg; // Combined with step 13
+15) sort Lk on TID;
+16) end
+17) Answer =
+S
+k
+Lk;
+Figure 5: Algorithm SETM
+.
+Buer Management The performance of the SETM algorithm critically depends on the size
+of the set Ck relative to the size of memory. If Ck ts in memory, the two sorting steps can be
+performed using an in-memory sort. In [HS93], Ck was assumed to t in main memory and buer
+management was not discussed.
+If Ck is too large to t in memory, we write the entries in Ck to disk in FIFO order when the
+buer allocated to the candidate itemsets lls up, as these entries are not required until the end of
+the pass. However, Ck now requires two external sorts.
+4.3 Generation of Synthetic Data
+We generated synthetic transactions to evaluate the performance of the algorithms over a large range
+of data characteristics. These transactions mimic the transactions in the retailing environment.
+Our model of the \real" world is that people tend to buy sets of items together. Each such set
+is potentially a maximal large itemset. An example of such a set might be sheets, pillow case,
+comforter, and rues. However, some people may buy only some of the items from such a set. For
+instance, some people might buy only sheets and pillow case, and some only sheets. A transaction
+may contain more than one large itemset. For example, a customer might place an order for a dress
+and jacket when ordering sheets and pillow cases, where the dress and jacket together form another
+large itemset. Transaction sizes are typically clustered around a mean and a few transactions have
+many items. Typical sizes of large itemsets are also clustered around a mean, with a few large
+itemsets having a large number of items.
+17
+To create a dataset, our synthetic data generation program takes the parameters shown in
+Table 2.
+Table 2: Parameters
+jDj Number of transactions
+jT j Average size of the Transactions
+jIj Average size of the maximal potentially large Itemsets
+jLj Number of maximal potentially large itemsets
+N Number of items
+We rst determine the size of the next transaction. The size is picked from a Poisson distribution
+with mean  equal to jT j. Note that if each item is chosen with the same probability p, and there
+are N items, the expected number of items in a transaction is given by a binomial distribution with
+parameters N and p, and is approximated by a Poisson distribution with mean Np.
+We then assign items to the transaction. Each transaction is assigned a series of potentially
+large itemsets. If the large itemset on hand does not t in the transaction, the itemset is put in
+the transaction anyway in half the cases, and the itemset is moved to the next transaction the rest
+of the cases.
+Large itemsets are chosen from a set T of such itemsets. The number of itemsets in T is set
+to jLj. There is an inverse relationship between jLj and the average support for potentially large
+itemsets. An itemset in T is generated by rst picking the size of the itemset from a Poisson
+distribution with mean  equal to jI j. Items in the rst itemset are chosen randomly. To model the
+phenomenon that large itemsets often have common items, some fraction of items in subsequent
+itemsets are chosen from the previous itemset generated. We use an exponentially distributed
+random variable with mean equal to the correlation level to decide this fraction for each itemset.
+The remaining items are picked at random. In the datasets used in the experiments, the correlation
+level was set to 0.5. We ran some experiments with the correlation level set to 0.25 and 0.75 but
+did not nd much dierence in the nature of our performance results.
+Each itemset in T has a weight associated with it, which corresponds to the probability that
+this itemset will be picked. This weight is picked from an exponential distribution with unit mean,
+and is then normalized so that the sum of the weights for all the itemsets in T is 1. The next
+itemset to be put in the transaction is chosen from T by tossing an jLj-sided weighted coin, where
+the weight for a side is the probability of picking the associated itemset.
+To model the phenomenon that all the items in a large itemset are not always bought together,
+we assign each itemset in T a corruption level c. When adding an itemset to a transaction, we keep
+dropping an item from the itemset as long as a uniformly distributed random number between 0
+and 1 is less than c. Thus for an itemset of size l, we will add l items to the transaction 1   c of
+18
+the time, l  1 items c(1  c) of the time, l  2 items c2(1  c) of the time, etc. The corruption level
+for an itemset is xed and is obtained from a normal distribution with mean 0.5 and variance 0.1.
+We generated datasets by setting N = 1000 and jLj = 2000. We chose 3 values for jT j: 5, 10,
+and 20. We also chose 3 values for jI j: 2, 4, and 6. The number of transactions was to set to
+100,000 because, as we will see in Section 4.4, SETM could not be run for larger values. However,
+for our scale-up experiments, we generated datasets with up to 10 million transactions (838MB for
+jT j = 20). Table 3 summarizes the dataset parameter settings. For the same jT j and jDj values,
+the size of datasets in megabytes were roughly equal for the dierent values of jI j.
+Table 3: Parameter settings (Synthetic datasets)
+Name jT j jIj jDj Size in Megabytes
+T5.I2.D100K 5 2 100K 2.4
+T10.I2.D100K 10 2 100K 4.4
+T10.I4.D100K 10 4 100K
+T20.I2.D100K 20 2 100K 8.4
+T20.I4.D100K 20 4 100K
+T20.I6.D100K 20 6 100K
+4.4 Experiments with Synthetic Data
+Figure 6 shows the execution times for the six synthetic datasets given in Table 3 for decreasing
+values of minimum support. As the minimum support decreases, the execution times of all the
+algorithms increase because of increases in the total number of candidate and large itemsets.
+For SETM, we have only plotted the execution times for the dataset T5.I2.D100K in Figure 6.
+The execution times for SETM for the two datasets with an average transaction size of 10 are given
+in Table 4. We did not plot the execution times in Table 4 on the corresponding graphs because
+they are too large compared to the execution times of the other algorithms. For the three datasets
+with transaction sizes of 20, SETM took too long to execute and we aborted those runs as the
+trends were clear. Clearly, Apriori beats SETM by more than an order of magnitude for large
+datasets.
+Table 4: Execution times in seconds for SETM
+Dataset Algorithm Minimum Support
+2.0% 1.5% 1.0% 0.75% 0.5%
+T10.I2.D100K SETM 74 161 838 1262 1878
+Apriori 4.4 5.3 11.0 14.5 15.3
+T10.I4.D100K SETM 41 91 659 929 1639
+Apriori 3.8 4.8 11.2 17.4 19.3
+19
+T5.I2.D100K T10.I2.D100K
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+SETM
+AIS
+AprioriTid
+Apriori
+0
+20
+40
+60
+80
+100
+120
+140
+160
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+T10.I4.D100K T20.I2.D100K
+0
+50
+100
+150
+200
+250
+300
+350
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+0
+100
+200
+300
+400
+500
+600
+700
+800
+900
+1000
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+T20.I4.D100K T20.I6.D100K
+0
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+1800
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+0
+500
+1000
+1500
+2000
+2500
+3000
+3500
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+Figure 6: Execution times: Synthetic Data
+20
+Apriori beats AIS for all problem sizes, by factors ranging from 2 for high minimum support to
+more than an order of magnitude for low levels of support. AIS always did considerably better than
+SETM. For small problems, AprioriTid did about as well as Apriori, but performance degraded to
+about twice as slow for large problems.
+4.5 Explanation of the Relative Performance
+To explain these performance trends, we show in Figure 7 the sizes of the large and candidate sets
+in dierent passes for the T10.I4.D100K dataset for the minimum support of 0.75%. Note that the
+Y-axis in this graph has a log scale.
+1
+10
+100
+1000
+10000
+100000
+1e+06
+1e+07
+1 2 3 4 5 6 7
+N
+u
+m
+b
+e
+r 
+o
+f 
+It
+e
+m
+se
+ts
+Pass Number
+C-bar-k (SETM)
+C-bar-k (AprioriTid)
+C-k (AIS, SETM)
+C-k (Apriori, AprioriTid)
+L-k
+Figure 7: Sizes of the large and candidate sets (T10.I4.D100K, minsup = 0.75%)
+The fundamental problem with the SETM algorithm is the size of its Ck sets. Recall that
+the size of the set Ck is given by
+P
+candidate itemsets c support-count(c). Thus, the sets Ck are
+roughly S times bigger than the corresponding Ck sets, where S is the average support count of
+the candidate itemsets. Unless the problem size is very small, the Ck sets have to be written to
+disk, and externally sorted twice, causing the SETM algorithm to perform poorly.2 This explains
+the jump in time for SETM in Table 4 when going from 1.5% support to 1.0% support for datasets
+with transaction size 10. The largest dataset in the scale-up experiments for SETM in [HS93] was
+still small enough that Ck could t in memory; hence they did not encounter this jump in execution
+time. Note that for the same minimum support, the support count for candidate itemsets increases
+linearly with the number of transactions. Thus, as we increase the number of transactions for the
+same values of jT j and jI j, though the size of Ck does not change, the size of Ck goes up linearly.
+Thus, for datasets with more transactions, the performance gap between SETM and the other
+2The cost of external sorting in SETM can be reduced somewhat as follows. Before writing out entries in Ck to
+disk, we can sort them on itemsets using an internal sorting procedure, and write them as sorted runs. These sorted
+runs can then be merged to obtain support counts. However, given the poor performance of SETM, we do not expect
+this optimization to aect the algorithm choice.
+21
+algorithms will become even larger.
+The problem with AIS is that it generates too many candidates that later turn out to be small,
+causing it to waste too much eort. Apriori also counts too many small sets in the second pass (recall
+that C2 is really a cross-product of L1 with L1). However, this wastage decreases dramatically from
+the third pass onward. Note that for the example in Figure 7, after pass 3, almost every candidate
+itemset counted by Apriori turns out to be a large set.
+AprioriTid also has the problem of SETM that Ck tends to be large. However, the apriori can-
+didate generation used by AprioriTid generates signicantly fewer candidates than the transaction-
+based candidate generation used by SETM. As a result, the Ck of AprioriTid has fewer entries
+than that of SETM. AprioriTid is also able to use a single word (ID) to store a candidate rather
+than requiring as many words as the number of items in the candidate.3 In addition, unlike SETM,
+AprioriTid does not have to sort Ck. Thus, AprioriTid does not suer as much as SETM from
+maintaining Ck.
+AprioriTid has the nice feature that it replaces a pass over the original dataset by a pass over
+the set Ck. Hence, AprioriTid is very eective in later passes when the size of Ck becomes small
+compared to the size of the database. Thus, we nd that AprioriTid beats Apriori when its Ck sets
+can t in memory and the distribution of the large itemsets has a long tail. When Ck doesn't t
+in memory, there is a jump in the execution time for AprioriTid, such as when going from 0.75%
+to 0.5% for datasets with transaction size 10 in Figure 6. In this region, Apriori starts beating
+AprioriTid.
+4.6 Reality Check
+To conrm the relative performance trends we observed using synthetic data, we experimented with
+three real-life datasets: a sales transactions dataset obtained from a retail chain and two customer-
+order datasets obtained from a mail order company. We present the results of these experiments
+below.
+Retail Sales Data The data from the retail chain consists of the sales transactions from one
+store over a short period of time. A transaction contains the names of the departments from which
+a customer bought a product in a visit to the store. There are a total of 63 items, representing
+departments. There are 46,873 transactions with an average size of 2.47. The size of the dataset is
+3For SETM to use IDs, it would have to maintain two additional in-memory data structures: a hash table to nd
+out whether a candidate has been generated previously, and a mapping from the IDs to candidates. However, this
+would destroy the set-oriented nature of the algorithm. Also, once we have the hash table which gives us the IDs of
+candidates, we might as well count them at the same time and avoid the two external sorts. We experimented with
+this variant of SETM and found that, while it did better than SETM, it still performed much worse than Apriori or
+AprioriTid.
+22
+very small, only 0.65MB. Some performance results for this dataset were reported in [HS93].
+Figure 8 shows the execution times of the four algorithms.4 The Ck sets for both SETM and
+AprioriTid t in memory for this dataset. Apriori and AprioriTid are roughly three times as fast
+as AIS and four times faster than SETM.
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0.10.250.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+SETM
+AIS
+AprioriTid
+Apriori
+Figure 8: Execution times: Retail sales data
+Mail Order data A transaction in the rst dataset from the mail order company consists of
+items ordered by a customer in a single mail order. There are a total of 15836 items. The average
+size of a transaction is 2.62 items and there are a total of 2.9 million transactions. The size of
+this dataset is 42 MB. A transaction in the second dataset consists of all the items ordered by a
+customer from the company in all orders together. Again, there are a total of 15836 items, but the
+average size of a transaction is now 31 items and there are a total of 213,972 transactions. The size
+of this dataset is 27 MB. We will refer to these datasets as M.order and M.cust respectively.
+The execution times for these two datasets are shown in Figures 9 and 10 respectively. For
+both datasets, AprioriTid is initially comparable to Apriori but becomes up to twice as slow for
+lower supports. For M.order, Apriori outperforms AIS by a factor of 2 to 6 and beats SETM by a
+factor of about 15. For M.cust, Apriori beats AIS by a factor of 3 to 30. SETM had to be aborted
+(after taking 20 times the time Apriori took to complete) because, even for 2% support, the set C2
+became larger than the disk capacity.
+4The execution times for SETM in this gure are a little higher compared to those reported in [HS93]. The
+timings in [HS93] were obtained on a RS/6000 350 processor, whereas our experiments have been run on a slower
+RS/6000 530H processor. The execution time for 1% support for AIS is lower than that reported in [AIS93b] because
+of improvements in the data structures for storing large and candidate itemsets.
+23
+0
+500
+1000
+1500
+2000
+2500
+3000
+3500
+4000
+4500
+5000
+0.1 0.05 0.025 0.01
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+SETM
+AIS
+AprioriTid
+Apriori
+Figure 9: Execution times: M.order
+0
+2000
+4000
+6000
+8000
+10000
+12000
+14000
+16000
+18000
+2 1.5 1 0.75 0.5 0.25
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AIS
+AprioriTid
+Apriori
+Figure 10: Execution times: M.cust
+4.7 Algorithm AprioriHybrid
+It is not necessary to use the same algorithm in all the passes over data. Figure 11 shows the
+execution times for Apriori and AprioriTid for dierent passes over the dataset T10.I4.D100K. In
+the earlier passes, Apriori does better than AprioriTid. However, AprioriTid beats Apriori in later
+passes. We observed similar relative behavior for the other datasets, the reason for which is as
+follows. Apriori and AprioriTid use the same candidate generation procedure and therefore count
+the same itemsets. In the later passes, the number of candidate itemsets reduces (see the size of
+Ck for Apriori and AprioriTid in Figure 7). However, Apriori still examines every transaction in
+the database. On the other hand, rather than scanning the database, AprioriTid scans Ck for
+obtaining support counts, and the size of Ck has become smaller than the size of the database.
+When the Ck sets can t in memory, we do not even incur the cost of writing them to disk.
+0
+2
+4
+6
+8
+10
+12
+14
+1 2 3 4 5 6 7
+T
+im
+e
+ (
+se
+c)
+Pass #
+Apriori
+AprioriTid
+Figure 11: Per pass execution times of Apriori and AprioriTid (T10.I4.D100K, minsup = 0.75%)
+Based on these observations, we can design a hybrid algorithm, which we call AprioriHybrid,
+24
+that uses Apriori in the initial passes and switches to AprioriTid when it expects that the set Ck
+at the end of the pass will t in memory. We use the following heuristic to estimate if Ck would t
+in memory in the next pass. At the end of the current pass, we have the counts of the candidates
+in Ck . From this, we estimate what the size of Ck would have been if it had been generated. This
+size, in words, is (
+P
+candidates c 2 Ck support(c)+number of transactions). If Ck in this pass was
+small enough to t in memory, and there were fewer large candidates in the current pass than the
+previous pass, we switch to AprioriTid. The latter condition is added to avoid switching when Ck
+in the current pass ts in memory but Ck in the next pass may not.
+5
+Switching from Apriori to AprioriTid does involve a cost. Assume that we decide to switch from
+Apriori to AprioriTid at the end of the kth pass. In the (k+1)th pass, after nding the candidate
+itemsets contained in a transaction, we will also have to add their IDs to Ck+1 (see the description
+of AprioriTid in Section 2.2). Thus there is an extra cost incurred in this pass relative to just
+running Apriori. It is only in the (k+2)th pass that we actually start running AprioriTid. Thus,
+if there are no large (k+1)-itemsets, or no (k+2)-candidates, we will incur the cost of switching
+without getting any of the savings of using AprioriTid.
+Figure 12 shows the performance of AprioriHybrid relative to Apriori and AprioriTid for large
+datasets. AprioriHybrid performs better than Apriori in almost all cases. For T10.I2.D100K with
+1.5% support, AprioriHybrid does a little worse than Apriori since the pass in which the switch
+occurred was the last pass; AprioriHybrid thus incurred the cost of switching without realizing
+the benets. In general, the advantage of AprioriHybrid over Apriori depends on how the size of
+the Ck set decline in the later passes. If Ck remains large until nearly the end and then has an
+abrupt drop, we will not gain much by using AprioriHybrid since we can use AprioriTid only for a
+short period of time after the switch. This is what happened with the M.cust and T20.I6.D100K
+datasets. On the other hand, if there is a gradual decline in the size of Ck, AprioriTid can be used
+for a while after the switch, and a signicant improvement can be obtained in the execution time.
+4.8 Scale-up Experiment
+Figure 13 shows how AprioriHybrid scales up as the number of transactions is increased from
+100,000 to 10 million transactions. We used the combinations (T5.I2), (T10.I4), and (T20.I6) for
+the average sizes of transactions and itemsets respectively. All other parameters were the same as
+for the data in Table 3. The sizes of these datasets for 10 million transactions were 239MB, 439MB
+and 838MB respectively. The minimum support level was set to 0.75%. The execution times are
+normalized with respect to the times for the 100,000 transaction datasets in the rst graph and
+5Other heuristics are also possible. For example, in a system with multiple disks, it may be faster to switch to
+AprioriTid as soon as the size of Ck is less than the size of the database.
+25
+M.order M.cust
+0
+100
+200
+300
+400
+500
+600
+700
+0.1 0.05 0.025 0.01
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+0
+100
+200
+300
+400
+500
+600
+700
+800
+900
+1000
+1100
+2 1.5 1 0.75 0.5 0.25
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+T10.I2.D100K T10.I4.D100K
+0
+5
+10
+15
+20
+25
+30
+35
+40
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+55
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+T20.I4.D100K T20.I6.D100K
+0
+50
+100
+150
+200
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+0
+100
+200
+300
+400
+500
+600
+700
+0.250.330.50.7511.52
+T
+im
+e
+ (
+se
+c)
+Minimum Support
+AprioriTid
+Apriori
+AprioriHybrid
+Figure 12: Execution times: AprioriHybrid Algorithm
+26
+with respect to the 1 million transaction dataset in the second. As shown, the execution times scale
+quite linearly.
+0
+2
+4
+6
+8
+10
+12
+100 250 500 750 1000
+R
+e
+la
+tiv
+e
+ T
+im
+e
+Number of Transactions (in ’000s)
+T20.I6
+T10.I4
+T5.I2
+0
+2
+4
+6
+8
+10
+12
+14
+1 2.5 5 7.5 10
+R
+e
+la
+tiv
+e
+ T
+im
+e
+Number of Transactions (in Millions)
+T20.I6
+T10.I4
+T5.I2
+Figure 13: Number of transactions scale-up
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+1000 2500 5000 7500 10000
+T
+im
+e
+ (
+se
+c)
+Number of Items
+T20.I6
+T10.I4
+T5.I2
+Figure 14: Number of items scale-up
+0
+5
+10
+15
+20
+25
+30
+5 10 20 30 40 50
+T
+im
+e
+ (
+se
+c)
+Transaction Size
+500
+750
+1000
+Figure 15: Transaction size scale-up
+Next, we examined how AprioriHybrid scaled up with the number of items. We increased the
+number of items from 1000 to 10,000 for the three parameter settings T5.I2.D100K, T10.I4.D100K
+and T20.I6.D100K. All other parameters were the same as for the data in Table 3. We ran ex-
+periments for a minimum support at 0.75%, and obtained the results shown in Figure 14. The
+execution times decreased a little since the average support for an item decreased as we increased
+the number of items. This resulted in fewer large itemsets and, hence, faster execution times.
+Finally, we investigated the scale-up as we increased the average transaction size. The aim of
+this experiment was to see how our data structures scaled with the transaction size, independent
+of other factors like the physical database size and the number of large itemsets. We kept the
+27
+physical size of the database roughly constant by keeping the product of the average transaction
+size and the number of transactions constant. The number of transactions ranged from 200,000
+for the database with an average transaction size of 5 to 20,000 for the database with an average
+transaction size 50. Fixing the minimum support as a percentage would have led to large increases
+in the number of large itemsets as the transaction size increased, since the probability of a itemset
+being present in a transaction is roughly proportional to the transaction size. We therefore xed the
+minimum support level in terms of the number of transactions. The results are shown in Figure 15.
+The numbers in the key (e.g. 500) refer to this minimum support. As shown, the execution times
+increase with the transaction size, but only gradually. The main reason for the increase was that
+in spite of setting the minimum support in terms of the number of transactions, the number of
+large itemsets increased with increasing transaction length. A secondary reason was that nding
+the candidates present in a transaction took a little more time.
+5 Conclusions and Future Work
+We presented two new algorithms, Apriori and AprioriTid, for discovering all signicant associ-
+ation rules between items in a large database of transactions. We compared these algorithms to
+the previously known algorithms, the AIS [AIS93b] and SETM [HS93] algorithms. We presented
+experimental results, using both synthetic and real-life data, showing that the proposed algorithms
+always outperform AIS and SETM. The performance gap increased with the problem size, and
+ranged from a factor of three for small problems to more than an order of magnitude for large
+problems.
+We showed how the best features of the two proposed algorithms can be combined into a hybrid
+algorithm, called AprioriHybrid, which then becomes the algorithm of choice for this problem.
+Scale-up experiments showed that AprioriHybrid scales linearly with the number of transactions.
+In addition, the execution time decreases a little as the number of items in the database increases.
+As the average transaction size increases (while keeping the database size constant), the execution
+time increases only gradually. These experiments demonstrate the feasibility of using AprioriHybrid
+in real applications involving very large databases.
+The algorithms presented in this paper have been implemented on several data repositories,
+including the AIX le system, DB2/MVS, and DB2/6000. In the future, we plan to extend this
+work along the following dimensions:
+ Multiple taxonomies (is-a hierarchies) over items are often available. An example of such a
+hierarchy is that a dish washer is a kitchen appliance is a heavy electric appliance, etc. We
+would like to be able to nd association rules that use such hierarchies.
+28
+ We did not consider the quantities of the items bought in a transaction, which are useful for
+some applications. Finding such rules needs further work.
+The work reported in this paper has been done in the context of the Quest project at the
+IBM Almaden Research Center. In Quest, we are exploring the various aspects of the database
+mining problem. Besides the problem of discovering association rules, some other problems that
+we have looked into include the enhancement of the database capability with classication queries
+[AGI+92] and similarity queries over time sequences [AFS93]. We believe that database mining is
+an important new application area for databases, combining commercial interest with intriguing
+research questions.
+Acknowledgment We wish to thank Mike Carey for his insightful comments and suggestions.
+References
+[ABN92] Tarek M. Anwar, Howard W. Beck, and Shamkant B. Navathe. Knowledge mining by
+imprecise querying: A classication-based approach. In IEEE 8th Int'l Conf. on Data
+Engineering, Phoenix, Arizona, February 1992.
+[AFS93] Rakesh Agrawal, Christos Faloutsos, and Arun Swami. Ecient similarity search in
+sequence databases. In Proc. of the Fourth International Conference on Foundations
+of Data Organization and Algorithms, Chicago, October 1993. Also in Lecture Notes
+in Computer Science 730, Springer Verlag, 1993, 69{84.
+[AGI+92] Rakesh Agrawal, Sakti Ghosh, Tomasz Imielinski, Bala Iyer, and Arun Swami. An
+interval classier for database mining applications. In Proc. of the VLDB Conference,
+pages 560{573, Vancouver, British Columbia, Canada, August 1992.
+[AIS93a] Rakesh Agrawal, Tomasz Imielinski, and Arun Swami. Database mining: A perfor-
+mance perspective. IEEE Transactions on Knowledge and Data Engineering, 5(6):914{
+925, December 1993. Special Issue on Learning and Discovery in Knowledge-Based
+Databases.
+[AIS93b] Rakesh Agrawal, Tomasz Imielinski, and Arun Swami. Mining association rules be-
+tween sets of items in large databases. In Proc. of the ACM SIGMOD Conference on
+Management of Data, pages 207{216, Washington, D.C., May 1993.
+29
+[ANB92] Tarek M. Anwar, Shamkant B. Navathe, and Howard W. Beck. Knowledge mining in
+databases: A unied approach through conceptual clustering. Technical report, Georgia
+Institute of Technology, May 1992.
+[Ass90] David Shepard Associates. The new direct marketing. Business One Irwin, Illinois,
+1990.
+[Ass92] Direct Marketing Association. Managing database marketing technology for success,
+1992.
+[B+93] R.J. Brachman et al. Integrated support for data archeology. In AAAI-93 Workshop
+on Knowledge Discovery in Databases, July 1993.
+[BFOS84] L. Breiman, J. H. Friedman, R. A. Olshen, and C. J. Stone. Classication and Regres-
+sion Trees. Wadsworth, Belmont, 1984.
+[Bit92] D. Bitton. Bridging the gap between database theory and practice, 1992.
+[C+88] P. Cheeseman et al. AutoClass: A Bayesian classication system. In 5th Int'l Conf. on
+Machine Learning. Morgan Kaufman, June 1988.
+[Cat91] J. Catlett. Megainduction: A test ight. In 8th Int'l Conf. on Machine Learning, June
+1991.
+[CH92] G. Cooper and E. Herskovits. A Bayesian method for the induction of probabilistic
+networks from data. Machine Learning, 1992.
+[Fis87] Douglas H. Fisher. Knowledge acquisition via incremental conceptual clustering. Ma-
+chine Learning, 2(2), 1987.
+[FWD93] Usama Fayyad, Nicholas Weir, and S.G. Djorgovski. Skicat: A machine learning system
+for automated cataloging of large scale sky surveys. In 10th Int'l Conf. on Machine
+Learning, June 1993.
+[HCC92] Jiawei Han, Yandong Cai, and Nick Cercone. Knowledge discovery in databases: An
+attribute oriented approach. In Proc. of the VLDB Conference, pages 547{559, Van-
+couver, British Columbia, Canada, 1992.
+[HS93] Maurice Houtsma and Arun Swami. Set-oriented mining of association rules. Research
+Report RJ 9567, IBM Almaden Research Center, San Jose, California, October 1993.
+30
+[HS94] M. Holsheimer and A. Siebes. Data mining: The search for knowledge in databases.
+Technical Report CS-R9406, CWI, Netherlands, 1994.
+[KI91] Ravi Krishnamurthy and Tomasz Imielinski. Practitioner problems in need of database
+research: Research directions in knowledge discovery. SIGMOD RECORD, 20(3):76{
+78, September 1991.
+[LSBZ87] P. Langley, H. Simon, G. Bradshaw, and J. Zytkow. Scientic Discovery: Computa-
+tional Explorations of the Creative Process. MIT Press, 1987.
+[Lub89] David J. Lubinsky. Discovery from databases: A review of AI and statistical techniques.
+In IJCAI-89 Workshop on Knowledge Discovery in Databases, pages 204{218, Detroit,
+August 1989.
+[MF92] S. Muggleton and C. Feng. Ecient induction of logic programs. In Steve Muggleton,
+editor, Inductive Logic Programming. Academic Press, 1992.
+[MKKR92] R.S. Michalski, L. Kerschberg, K.A. Kaufman, and J.S. Ribeiro. Mining for knowledge
+in databases: The INLEN architecture, initial implementation, and rst results. Journal
+of Intelligent Information Systems, 1:85{113, 1992.
+[MR87] Heikki Mannila and Kari-Jouku Raiha. Dependency inference. In Proc. of the VLDB
+Conference, pages 155{158, Brighton, England, 1987.
+[MTV94] Heikki Mannila, Hannu Toivonen, and A. Inkeri Verkamo. Ecient algorithms for
+discovering association rules. In KDD-94: AAAI Workshop on Knowledge Discovery
+in Databases, July 1994.
+[Pea92] J. Pearl. Probabilistic reasoning in intelligent systems: Networks of plausible inference,
+1992.
+[PS91a] G. Piatestsky-Shapiro. Discovery, analysis, and presentation of strong rules. In
+G. Piatestsky-Shapiro, editor, Knowledge Discovery in Databases. AAAI/MIT Press,
+1991.
+[PS91b] G. Piatestsky-Shapiro, editor. Knowledge Discovery in Databases. AAAI/MIT Press,
+1991.
+[Qui90] J. Ross Quinlan. Learning logical denitions from examples. Machine Learning, 5(3),
+1990.
+31
+[Qui93] J. Ross Quinlan. C4.5: Programs for Machine Learning. Morgan Kaufman, 1993.
+[S+93] M. Stonebraker et al. The DBMS research at crossroads. In Proc. of the VLDB
+Conference, Dublin, August 1993.
+[Sch90] C. Schaer. Domain-Independent Function Finding. PhD thesis, Rutgers University,
+1990.
+[Tsu90] S. Tsur. Data dredging. IEEE Data Engineering Bulletin, 13(4):58{63, December 1990.
+32
+
