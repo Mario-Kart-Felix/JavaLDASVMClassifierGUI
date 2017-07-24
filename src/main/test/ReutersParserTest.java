@@ -7,8 +7,8 @@ import java.util.Date;
 import java.util.List;
 
 import adpater.file.TextFileAdapter;
-import tool.parser.reuters.ReutersParser;
-import tool.parser.reuters.entity.ReutersDocument;
+import tool.entity.Document;
+import tool.parser.CorpusDocumentParser;
 
 public class ReutersParserTest {
 	
@@ -25,29 +25,29 @@ public class ReutersParserTest {
 		
 		//R8
 		String reutersDataInputFilePath = System.getProperty("user.dir")
-				+ "/data/dataset/Reuters-21578-R8/training/no-stop/r8-train-no-stop.txt";
+				+ "/data/dataset/Reuters-21578-R8/r8-test-no-stop.txt";
 		
-		String corpusRootDirPath = System.getProperty("user.dir") + "/data/dataset/training/Reuters-21578-R8"; 
+		String corpusRootDirPath = System.getProperty("user.dir") + "/data/dataset/testing/Reuters-21578-R8"; 
 		
-		ReutersParser reutersParser = new ReutersParser();
+		CorpusDocumentParser reutersParser = new CorpusDocumentParser();
 		List<String> topics = reutersParser.parseAllTopicFromFile(reutersDataInputFilePath);
 
 		System.out.println("Total topic -> [" + topics.size() + "]");
 		
 		for (String topic : topics) {
 			
-			List<ReutersDocument> belongTopicDocs = reutersParser.parseDocByTopicFromFile(topic,
+			List<Document> belongTopicDocs = reutersParser.parseDocByTopicFromFile(topic,
 					reutersDataInputFilePath);
 			
 			
 			String topicFolderNamePath = corpusRootDirPath + "/" + topic;
 			if(!new File(topicFolderNamePath).exists()) {
-				//new File(topicFolderNamePath).mkdirs();
+				new File(topicFolderNamePath).mkdirs();
 			}
 			
-			for(ReutersDocument doc : belongTopicDocs) {
-				//String docFileNamePath = topicFolderNamePath + "/" + dateFormat.format(new Date()) + ".txt";
-				//textFileAdapter.writeToDataStringFile(doc.getContent(), docFileNamePath);
+			for(Document doc : belongTopicDocs) {
+				String docFileNamePath = topicFolderNamePath + "/" + dateFormat.format(new Date()) + ".txt";
+				textFileAdapter.writeToDataStringFile(doc.getContent(), docFileNamePath);
 			}
 			
 			System.out.println(topic + "-> [" + belongTopicDocs.size() + "]");
