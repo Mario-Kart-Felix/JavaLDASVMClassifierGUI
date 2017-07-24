@@ -15,59 +15,119 @@ import adpater.file.TextFileAdapter;
 
 public class KLDivergenceTest {
 
+	static int numberOfTestingDoc = 90;
+	static boolean enableDetailLogging = false;
+
 	public static void main(String[] args) {
+
 		// TODO Auto-generated method stub
 
 		TextFileAdapter textFileAdapter = new TextFileAdapter();
 
-		String currentUserDirPath = System.getProperty("user.dir");
+		List<String> testingTopicList = new ArrayList<>();
+		testingTopicList.add("artificial_intelligence");
+		testingTopicList.add("bioinformatics");
+		testingTopicList.add("computer_hardware");
+		//testingTopicList.add("data_mining");
+		testingTopicList.add("information_retrieval");
 
-		String docTermWeightDataRootPath = currentUserDirPath + "/data/test/kl_divergence/test_docs/artificial_intelligence_KL.txt";
-		loadTestDocument(docTermWeightDataRootPath);
-		
-		/*String docTermWeightDataFilePath = currentUserDirPath + "/data/test/kl_divergence/doc.txt";
-		String topicTermWeightDataFileRootPath = currentUserDirPath + "/data/test/kl_divergence/topics";
+		for (String testingTopic : testingTopicList) {
 
-		File[] topicFiles = new File(topicTermWeightDataFileRootPath).listFiles();
+			String expectedTopicName = testingTopic;
 
-		for (File topicFile : topicFiles) {
+			String currentUserDirPath = System.getProperty("user.dir");
 
-			if (topicFile.isFile()) {
+			String docTermWeightDataRootPath = currentUserDirPath + "/data/test/" + "kl_divergence/test_docs/"
+					+ expectedTopicName + "_KL.txt";
 
-				System.out.println("Topic -> [" + topicFile.getName() + "]");
+			List<Map<String, Double>> testDocTermWeightsMaps = loadTestDocument(docTermWeightDataRootPath);
 
-				String topicTermWeightDataFilePath = topicTermWeightDataFileRootPath + "/" + topicFile.getName();
+			// String docTermWeightDataFilePath = currentUserDirPath +
+			// "/data/test/kl_divergence/doc.txt";
 
-				List<String> topicTermWeights = textFileAdapter
-						.parseSingleFileToListString(topicTermWeightDataFilePath);
-				List<String> docTermWeights = textFileAdapter.parseSingleFileToListString(docTermWeightDataFilePath);
+			double correctCount = 0;
+			int docCount = 1;
 
-				Map<String, Double> topicTermsWeightMap = new HashMap<String, Double>();
-				for (String pair : topicTermWeights) {
-					String[] splits = pair.split("=");
-					topicTermsWeightMap.put(splits[0].trim(), Double.parseDouble(splits[1]));
+			Map<String, Integer> predictedResultMap = new HashMap<>();
+
+			for (Map<String, Double> testDocTermWeightsMap : testDocTermWeightsMaps) {
+				
+				if(docCount>=numberOfTestingDoc) {
+					break;
 				}
 
-				Map<String, Double> docTermsWeightMap = new HashMap<String, Double>();
-				for (String pair : docTermWeights) {
-					String[] splits = pair.split("=");
-					docTermsWeightMap.put(splits[0].trim(), Double.parseDouble(splits[1]));
+				String topicTermWeightDataFileRootPath = currentUserDirPath + "/data/"
+						+ "test/kl_divergence/topics/20_terms";
+
+				//File[] topicFiles = new File(topicTermWeightDataFileRootPath).listFiles();
+
+				String maxKLDivergenceTopic = "";
+				double maxKLDivergenceValue = 0;
+
+				for (String rootTopicKeywords : testingTopicList) {
+					File topicFile = new File(topicTermWeightDataFileRootPath + "/" + rootTopicKeywords + ".txt");
+					
+					if (topicFile.isFile()) {
+
+						// System.out.println("Topic -> [" + topicFile.getName()
+						// +
+						// "]");
+
+						String topicTermWeightDataFilePath = topicTermWeightDataFileRootPath + "/"
+								+ topicFile.getName();
+
+						List<String> topicTermWeights = textFileAdapter
+								.parseSingleFileToListString(topicTermWeightDataFilePath);
+
+						Map<String, Double> topicTermsWeightMap = new HashMap<String, Double>();
+						for (String pair : topicTermWeights) {
+							String[] splits = pair.split("=");
+							topicTermsWeightMap.put(splits[0].trim(), Double.parseDouble(splits[1]));
+						}
+
+						// union(topicTermsWeightMap, docTermsWeightMap);
+						String topicName = topicFile.getName().replaceAll(".txt", "");
+						double klDivergence = calcKLDivergence(topicName, topicTermsWeightMap, testDocTermWeightsMap);
+						if (klDivergence > maxKLDivergenceValue) {
+							maxKLDivergenceValue = klDivergence;
+							maxKLDivergenceTopic = topicName;
+						}
+
+					}
+
+				}
+
+				if (expectedTopicName.equalsIgnoreCase(maxKLDivergenceTopic)) {
+					correctCount++;
+				}
+
+				if(maxKLDivergenceTopic!="") {
+					int count = predictedResultMap.containsKey(maxKLDivergenceTopic)
+							? predictedResultMap.get(maxKLDivergenceTopic) : 1;
+					predictedResultMap.put(maxKLDivergenceTopic, count + 1);
 				}
 				
+				if (enableDetailLogging) {
+					System.out.println(
+							"Doc [" + docCount + "] -> [" + maxKLDivergenceTopic + "][" + maxKLDivergenceValue + "]");
+					System.out.println();
+				}
 
-				union(topicTermsWeightMap, docTermsWeightMap);
-
-				calcKLDivergence(topicTermsWeightMap, docTermsWeightMap);
+				docCount++;
 
 			}
 
-		}*/
+			System.out.println(
+					"Accuracy rate -> [" + testingTopic + "][" + (correctCount / (double) docCount) * 100 + "]");
+
+			printMapInteger(predictedResultMap);
+
+		}
 
 	}
-	
-	
-	//calcKLDivergence
-	private static double calcKLDivergence(Map<String, Double> topicMap, Map<String, Double> docMap) {
+
+	// calcKLDivergence
+	private static double calcKLDivergence(String topicName, Map<String, Double> topicMap, Map<String, Double> docMap) {
 
 		Map<String, Double> unitedMap = union(topicMap, docMap);
 		Iterator mapIterator = unitedMap.entrySet().iterator();
@@ -104,43 +164,48 @@ public class KLDivergenceTest {
 
 		}
 
+		if (enableDetailLogging) {
+			System.out.println(topicName + " -> [" + klDivergenceAcc + "]");
+		}
+
 		return klDivergenceAcc;
 
 	}
-	
-	//loadTestDocument
+
+	// loadTestDocument
 	private static List<Map<String, Double>> loadTestDocument(String dataFilePath) {
-		
+
 		TextFileAdapter textFileAdapter = new TextFileAdapter();
 		List<Map<String, Double>> documents = new ArrayList<>();
 		List<String> lines = (List<String>) textFileAdapter
 				.parseSingleFileToListString((java.lang.String) dataFilePath);
 
 		if (lines.size() > 0) {
-			
+
 			Map<String, Double> document = null;
-			
+
 			for (String line : lines) {
-				
+
 				if (line.equals("---")) {
-					
-					if(document!=null && document.keySet().size()>0) {
+
+					if (document != null && document.keySet().size() > 0) {
 						documents.add(document);
 					}
 					document = new HashMap<>();
 					continue;
-					
+
 				}
-				
+
 				String splits[] = line.split("=");
 				document.put(splits[0].trim(), Double.parseDouble(splits[1]));
-				
+
 			}
-			
-			System.out.println("Total testing document: -> [" + documents.size() + "]");
-			
+
+			// System.out.println("Total testing document: -> [" +
+			// documents.size() + "]");
+
 			return documents;
-			
+
 		}
 
 		return null;
@@ -181,6 +246,17 @@ public class KLDivergenceTest {
 	}
 
 	private static void printMap(Map<String, Double> dataMap) {
+
+		Iterator mapIterator = dataMap.entrySet().iterator();
+		while (mapIterator.hasNext()) {
+			Map.Entry<String, Double> entry = (Entry<String, Double>) mapIterator.next();
+			System.out.println(entry.getKey() + " - " + entry.getValue());
+		}
+		System.out.println();
+
+	}
+
+	private static void printMapInteger(Map<String, Integer> dataMap) {
 
 		Iterator mapIterator = dataMap.entrySet().iterator();
 		while (mapIterator.hasNext()) {
